@@ -108,7 +108,8 @@ export function Operations() {
   const [msg, setMsg] = useState<string | null>(null);
   if (error) return <ErrorNote error={error} />;
   if (!o) return <Loading />;
-  const ns = o.notifications.settings;
+  const ns = o.notifications?.settings ?? {};
+  const hb = o.heartbeat ?? { configured: false, meaning: "" };
   const save = async (v: any) => { setErr(null); try { await post("/api/ops/notify-settings", v); reload(); } catch (e: any) { setErr(e.message); } };
   return (
     <div>
@@ -121,14 +122,14 @@ export function Operations() {
           <h2>Worker &amp; schedule</h2>
           <p><Badge kind={o.worker.state === "RUNNING" ? "ok" : "bad"}>{o.worker.state}</Badge> {o.worker.text}</p>
           <p className="small">Last successful evaluation: {o.last_successful_evaluation ? <>{o.last_successful_evaluation.key.split(":")[1]} at <DubaiTime t={o.last_successful_evaluation.at} /></> : "none yet"}</p>
-          <p className="small">External heartbeat: {o.heartbeat.configured ? (
-            o.heartbeat.last_error ? <Badge kind="bad" icon="✖">last ping failed ({o.heartbeat.last_error})</Badge>
-              : o.heartbeat.last_ok ? <Badge kind="ok" icon="✔">last ping {new Date(o.heartbeat.last_ok).toLocaleTimeString("en-GB", { timeZone: "Asia/Dubai" })} Dubai</Badge>
+          <p className="small">External heartbeat: {hb.configured ? (
+            hb.last_error ? <Badge kind="bad" icon="✖">last ping failed ({hb.last_error})</Badge>
+              : hb.last_ok ? <Badge kind="ok" icon="✔">last ping {new Date(hb.last_ok).toLocaleTimeString("en-GB", { timeZone: "Asia/Dubai" })} Dubai</Badge>
               : <Badge kind="warn">configured, no ping yet</Badge>
-          ) : <Badge kind="warn" icon="!">not configured</Badge>} <span className="muted">{o.heartbeat.meaning}</span></p>
+          ) : <Badge kind="warn" icon="!">not configured</Badge>} <span className="muted">{hb.meaning}</span></p>
           <h3>Monitoring routine (Dubai time, from the exchange calendar)</h3>
           <table className="small"><thead><tr><th>Session</th><th>Check orders at open</th><th>Window ends</th><th>Evening decision</th></tr></thead>
-            <tbody>{o.monitoring_routine.map((m: any) => <tr key={m.session}><td>{m.session}{m.early_close && " (early close)"}</td><td>{m.check_open_dubai}</td><td>{m.window_end_dubai}</td><td>{m.evaluation_dubai}</td></tr>)}</tbody></table>
+            <tbody>{(o.monitoring_routine ?? []).map((m: any) => <tr key={m.session}><td>{m.session}{m.early_close && " (early close)"}</td><td>{m.check_open_dubai}</td><td>{m.window_end_dubai}</td><td>{m.evaluation_dubai}</td></tr>)}</tbody></table>
           <ul className="small">
             <li>Morning: read the previous evening's decision and its explanation.</li>
             <li>If an intent is pending: be online at the open and check the order resolves (filled/cancelled) — supervise the first automated sessions closely.</li>
@@ -154,7 +155,7 @@ export function Operations() {
         <div className="card">
           <h2>Phone notifications (optional, ntfy)</h2>
           <p className="small">The in-app inbox works without any setup. Push uses ntfy. An unguessable topic is <strong>not</strong> private authentication, so pushes contain only a redacted summary unless you configure an ntfy access token and opt in.</p>
-          <p className="small">Topic: {o.config.ntfy_topic} · Token: {o.config.ntfy_token} · Server: {o.config.ntfy_server}</p>
+          <p className="small">Topic: {o.config?.ntfy_topic} · Token: {o.config?.ntfy_token} · Server: {o.config?.ntfy_server}</p>
           <label className="row"><input type="checkbox" checked={!!ns.enabled} onChange={(e) => save({ enabled: e.target.checked })} /> Send push notifications</label>
           <label className="row"><input type="checkbox" checked={!!ns.include_financial_details} onChange={(e) => save({ include_financial_details: e.target.checked })} /> Include sizes/prices (requires ntfy token)</label>
           <div className="row">
@@ -165,21 +166,21 @@ export function Operations() {
           <p className="small muted">Critical alerts (missed execution, rejection, security pause, stale worker cycle errors) bypass quiet hours. Routine HOLD/SKIP results are grouped in one daily summary.</p>
           <button onClick={async () => { setErr(null); try { const r: any = await post("/api/ops/notify-test"); setMsg(r.message); reload(); } catch (e: any) { setErr(e.message); } }}>Send test notification</button>
           <h3>Outbox</h3>
-          <p className="small muted">{o.notifications.meaning}</p>
+          <p className="small muted">{o.notifications?.meaning}</p>
           <table className="small"><thead><tr><th>Created</th><th>Status</th><th>Title</th><th>Tries</th><th>Error</th></tr></thead>
-            <tbody>{o.notifications.outbox.slice(0, 10).map((n: any) => <tr key={n.id}><td><DubaiTime t={n.created_at} /></td><td>{n.status}</td><td>{n.title}</td><td>{n.attempts}</td><td>{n.last_error}</td></tr>)}</tbody></table>
+            <tbody>{(o.notifications?.outbox ?? []).slice(0, 10).map((n: any) => <tr key={n.id}><td><DubaiTime t={n.created_at} /></td><td>{n.status}</td><td>{n.title}</td><td>{n.attempts}</td><td>{n.last_error}</td></tr>)}</tbody></table>
         </div>
         <div className="card">
           <h2>Configuration (masked)</h2>
-          <table className="small"><tbody>{Object.entries(o.config).map(([k, v]: any) => <tr key={k}><th scope="row">{k}</th><td className="mono">{String(v)}</td></tr>)}</tbody></table>
+          <table className="small"><tbody>{Object.entries(o.config ?? {}).map(([k, v]: any) => <tr key={k}><th scope="row">{k}</th><td className="mono">{String(v)}</td></tr>)}</tbody></table>
           <h3>Backups</h3>
           <button onClick={async () => { setErr(null); try { const r: any = await post("/api/ops/backup"); setMsg(`Backup ${r.file}: integrity ${r.integrity}`); reload(); } catch (e: any) { setErr(e.message); } }}>Back up database now</button>
-          <ul className="small">{o.backups.map((b: any) => <li key={b.name}>{b.name} ({Math.round(b.size / 1024)} KB)</li>)}</ul>
+          <ul className="small">{(o.backups ?? []).map((b: any) => <li key={b.name}>{b.name} ({Math.round(b.size / 1024)} KB)</li>)}</ul>
           <p className="small muted">Restore drill: <code>.\scripts\restore-drill.ps1</code>. Restore: stop Orbit, then <code>.\scripts\restore.ps1 &lt;file&gt;</code>.</p>
           <h3>Exports</h3>
           <a className="btn" href="/api/export/decisions">Decisions &amp; intents (JSON, redacted)</a>
           <h3>Recent jobs</h3>
-          <table className="small"><tbody>{o.jobs.slice(0, 8).map((j: any, i: number) => <tr key={i}><td>{j.type}</td><td>{j.status}</td><td className="mono">{j.key.split(":").slice(1).join(":")}</td><td>{j.error}</td></tr>)}</tbody></table>
+          <table className="small"><tbody>{(o.jobs ?? []).slice(0, 8).map((j: any, i: number) => <tr key={i}><td>{j.type}</td><td>{j.status}</td><td className="mono">{j.key.split(":").slice(1).join(":")}</td><td>{j.error}</td></tr>)}</tbody></table>
         </div>
       </div>
     </div>

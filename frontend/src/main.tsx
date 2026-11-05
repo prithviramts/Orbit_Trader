@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter, NavLink, Route, Routes, useNavigate } from "react-router-dom";
+import { BrowserRouter, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { get, post, setCsrf } from "./api";
 import { Badge, ErrorNote, ModeBadge, usePoll } from "./components";
 import { Overview } from "./pages/Overview";
@@ -186,6 +186,7 @@ function App() {
               }
             }}
           />
+          <PageGuard>
           <Routes>
             <Route path="/" element={<Overview />} />
             <Route path="/status" element={<Status />} />
@@ -201,10 +202,40 @@ function App() {
             <Route path="/security" element={<Security />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
+          </PageGuard>
         </main>
       </div>
     </BrowserRouter>
   );
+}
+
+/** Shows a visible error instead of a blank screen if a page crashes; resets when you change page. */
+class PageErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  componentDidCatch(error: Error) {
+    console.error("Orbit page crashed:", error);
+  }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="banner bad" role="alert">
+        <span aria-hidden="true">!</span>
+        <div>
+          <strong>This page could not be shown.</strong> Trading is not affected: the worker runs separately.
+          <div className="small mono">{String(this.state.error.message || this.state.error)}</div>
+          <button onClick={() => window.location.reload()}>Reload page</button>
+        </div>
+      </div>
+    );
+  }
+}
+
+function PageGuard({ children }: { children: React.ReactNode }) {
+  const loc = useLocation();
+  return <PageErrorBoundary key={loc.pathname}>{children}</PageErrorBoundary>;
 }
 
 function NotFound() {
