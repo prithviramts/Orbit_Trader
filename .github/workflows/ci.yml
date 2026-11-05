@@ -1,0 +1,66 @@
+# Runs on every push and pull request. Uses only mocks and offline fixtures: no broker credentials,
+# no network calls to Alpaca or ntfy, and no secrets are configured for this workflow.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          version: "0.12.21"
+      - name: Install locked dependencies
+        run: uv sync --frozen
+      - name: Tests
+        run: uv run --frozen pytest -p no:warnings -rf
+      - name: Dependency vulnerability audit
+        run: uv run --frozen pip-audit --progress-spinner off --skip-editable
+
+  frontend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: Typecheck and build
+        run: npm run build
+      - name: Dependency vulnerability audit (production)
+        run: npm audit --omit=dev --audit-level=moderate
+
+  secret-scan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Refuse committed env files and key-like strings
+        run: |
+          if git ls-files | grep -E '(^|/)\.env$'; then echo "::error::.env is tracked"; exit 1; fi
+          if git grep -nE '\b(PK|AK)[A-Z0-9]{16,}\b' -- ':!backend/tests/*' ':!**/package-lock.json' ':!backend/uv.lock'; then
+            echo "::error::key-like string found"; exit 1
+          fi
+          echo "No tracked .env and no key-like strings outside tests."

@@ -29,6 +29,7 @@ from orbit.db import Database, WorkerLease, init_db
 from orbit.engine import Engine
 from orbit.logging_setup import setup_logging
 from orbit.market_calendar import DUBAI, MarketCalendar, now_utc, xnys_calendar
+from orbit.heartbeat import Heartbeat
 from orbit.notify import NtfySender, dispatch_outbox, emit
 
 log = logging.getLogger("orbit.worker")
@@ -109,6 +110,16 @@ def release_lease(db: Database, owner: str) -> None:
                   .values(expires_at=now_utc() - timedelta(seconds=1), status="stopped"))
 
 
+def record_heartbeat(db: Database, hb: Heartbeat) -> None:
+    from orbit.db import KV
+    with db.session() as s:
+        row = s.get(KV, "heartbeat_status")
+        if row:
+            row.value = hb.status()
+        else:
+            s.add(KV(key="heartbeat_status", value=hb.status()))
+
+
 class AlpacaDataProvider:
     def __init__(self, adapter):
         self.adapter = adapter
@@ -166,6 +177,7 @@ def main() -> int:
         stop_flag.unlink()
     engine = build_engine(settings, db)
     sender = NtfySender(settings) if settings.ntfy_topic else None
+    hb = Heartbeat(settings)
     with db.session() as s:
         emit(s, "worker_started", "info", "Trading worker started",
              f"Worker {owner} started at {now_utc().astimezone(DUBAI):%Y-%m-%d %H:%M} Dubai. Broker: {'Alpaca PAPER' if engine.broker else 'not configured (no trading)'}.",
@@ -177,8 +189,10 @@ def main() -> int:
         while not stop["flag"]:
             now = now_utc()
             heartbeat(db, owner, now)
+            tick_ok = False
             try:
                 engine.tick(now)
+                tick_ok = True
             except Exception as exc:  # noqa: BLE001 - log, alert and continue; state is durable
                 log.exception("tick failed: %s", redact(exc))
                 with db.session() as s:
@@ -187,6 +201,9 @@ def main() -> int:
             if sender:
                 with db.session() as s:
                     dispatch_outbox(s, sender, now)
+            # External dead-man's switch: only a completed cycle counts as "alive".
+            if tick_ok and hb.maybe_ping(now) or hb.last_error:
+                record_heartbeat(db, hb)
             for _ in range(settings.worker_tick_seconds * 2):
                 if stop_flag.exists():
                     stop["flag"] = True

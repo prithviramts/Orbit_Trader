@@ -17,7 +17,7 @@ Pop-Location
 # Simple secret scan over source files (not a replacement for a dedicated scanner such as gitleaks).
 $files = Get-ChildItem -Path $Root -Recurse -File -Include *.py, *.ts, *.tsx, *.ps1, *.md, *.json, *.toml, *.yml, *.example, Dockerfile -ErrorAction SilentlyContinue |
   Where-Object { $_.FullName -notmatch 'node_modules|\\\.venv\\|\\dist\\|\\data\\|package-lock|uv\.lock' }
-$hits = $files | Select-String -Pattern '\b(PK|AK)[A-Z0-9]{16,}\b' | Where-Object { $_.Line -notmatch 'PKTESTKEYVALUE|PKABCDEFGHIJ' }
+$hits = $files | Select-String -Pattern '\b(PK|AK)[A-Z0-9]{16,}\b' | Where-Object { $_.Line -notmatch 'PKTESTKEYVALUE|PKABCDEFGHIJ|PKOFFLINETESTKEY' }
 $scan = if ($hits) { "Potential secrets found:`n" + ($hits | Out-String) } else { "No key-like strings found outside known test fixtures ($($files.Count) files scanned)." }
 
 $summary = ($py -split "`n" | Where-Object { $_ -match '^(PASSED|FAILED|ERROR)|passed|failed' }) -join "`n"

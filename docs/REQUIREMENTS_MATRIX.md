@@ -38,4 +38,6 @@ Evidence types: **T** = automated test (file::name), **UI** = screen inspected i
 | Alpaca read path (account, positions, orders, asset, clock, bars) | Read-only check on the owner paper account 2026-11-05; tests/test_alpaca_adapter.py | Externally verified (read path) |
 | Supervised paper order at Alpaca | Mocks only | **Blocked: requires owner activation** |
 | ntfy phone receipt | Adapter + failure tests | **Blocked: owner must configure and confirm** |
-| Container build / Linux run | Files written | **Blocked: Docker not installed here** |
+| Container build / Linux run | Files written; `bash -n` and YAML parse checks | **Blocked: Docker not installed here** |
+| Remote mode (HTTPS origin, Secure cookie, Host checks) | T api::test_remote_mode_accepts_only_public_https_origin | Test passed; untested behind real `tailscale serve` |
+| External heartbeat (dead-man's switch) | T heartbeat::test_pings_and_rate_limits, ::test_failures_never_raise, ::test_http_url_refused_…, ::test_heartbeat_url_is_redacted | Test passed |

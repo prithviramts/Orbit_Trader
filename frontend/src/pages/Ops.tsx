@@ -121,6 +121,11 @@ export function Operations() {
           <h2>Worker &amp; schedule</h2>
           <p><Badge kind={o.worker.state === "RUNNING" ? "ok" : "bad"}>{o.worker.state}</Badge> {o.worker.text}</p>
           <p className="small">Last successful evaluation: {o.last_successful_evaluation ? <>{o.last_successful_evaluation.key.split(":")[1]} at <DubaiTime t={o.last_successful_evaluation.at} /></> : "none yet"}</p>
+          <p className="small">External heartbeat: {o.heartbeat.configured ? (
+            o.heartbeat.last_error ? <Badge kind="bad" icon="✖">last ping failed ({o.heartbeat.last_error})</Badge>
+              : o.heartbeat.last_ok ? <Badge kind="ok" icon="✔">last ping {new Date(o.heartbeat.last_ok).toLocaleTimeString("en-GB", { timeZone: "Asia/Dubai" })} Dubai</Badge>
+              : <Badge kind="warn">configured, no ping yet</Badge>
+          ) : <Badge kind="warn" icon="!">not configured</Badge>} <span className="muted">{o.heartbeat.meaning}</span></p>
           <h3>Monitoring routine (Dubai time, from the exchange calendar)</h3>
           <table className="small"><thead><tr><th>Session</th><th>Check orders at open</th><th>Window ends</th><th>Evening decision</th></tr></thead>
             <tbody>{o.monitoring_routine.map((m: any) => <tr key={m.session}><td>{m.session}{m.early_close && " (early close)"}</td><td>{m.check_open_dubai}</td><td>{m.window_end_dubai}</td><td>{m.evaluation_dubai}</td></tr>)}</tbody></table>

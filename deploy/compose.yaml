@@ -1,36 +1,42 @@
-# Private Linux server layout (not provisioned). Exactly ONE worker replica: the DB lease and file lock
-# also refuse a second worker, but do not scale it. The API listens only on the host loopback; reach it
-# through an authenticated private tunnel/VPN or an HTTPS reverse proxy (see docs/DEPLOYMENT.md).
+# Private Linux server layout. Exactly ONE worker: the DB lease and file lock refuse a second worker,
+# but do not scale it. The API is published only on the host's loopback (127.0.0.1:8765) and reached
+# through `tailscale serve` (HTTPS, private tailnet). Nothing listens on the public internet.
+name: orbit
 services:
   worker:
     image: orbit-trading-lab
-    command: ["uv", "run", "--frozen", "--no-dev", "python", "-m", "orbit.worker"]
-    env_file: [/etc/orbit/orbit.env]       # chmod 600, owned by root; never committed
-    volumes: [orbit-data:/data]
+    command: ["python", "-m", "orbit.worker"]
+    env_file: [/etc/orbit/orbit.env]       # chmod 600 root:root; never committed
+    volumes: ["/srv/orbit/data:/data"]
     restart: unless-stopped
-    stop_grace_period: 45s                 # SIGTERM -> worker finishes its cycle and releases its lease
+    stop_signal: SIGTERM
+    stop_grace_period: 45s                 # worker finishes its cycle, records shutdown, releases its lease
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
-    deploy: { resources: { limits: { cpus: "0.50", memory: 512M } } }
+    mem_limit: 512m
+    cpus: 0.5
+    logging: { driver: json-file, options: { max-size: "10m", max-file: "5" } }
   api:
     image: orbit-trading-lab
+    command: ["python", "-m", "orbit.api"]
     env_file: [/etc/orbit/orbit.env]
     environment:
-      ORBIT_BIND_HOST: 0.0.0.0              # inside the container only; published on host loopback below
-      ORBIT_DEPLOYMENT_MODE: remote
-      # ORBIT_PUBLIC_ORIGIN: https://orbit.your-private-domain   # required, must be https
+      ORBIT_BIND_HOST: 0.0.0.0             # inside the container only; published on host loopback below
+      ORBIT_DEPLOYMENT_MODE: remote        # requires ORBIT_PUBLIC_ORIGIN=https://... in orbit.env
     ports: ["127.0.0.1:8765:8765"]
-    volumes: [orbit-data:/data]
+    volumes: ["/srv/orbit/data:/data"]
     restart: unless-stopped
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
+    mem_limit: 768m
+    cpus: 1.0
+    logging: { driver: json-file, options: { max-size: "10m", max-file: "5" } }
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8765/api/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8765/api/health',timeout=5)"]
       interval: 60s
-    deploy: { resources: { limits: { cpus: "1.0", memory: 768M } } }
-volumes:
-  orbit-data: {}
+      timeout: 10s
+      retries: 3

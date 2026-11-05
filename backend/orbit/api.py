@@ -391,6 +391,9 @@ def _routes(app: FastAPI):
         w = _worker_status(s)
         if w["state"] == "STALE":
             incidents.append({"kind": "WORKER_STALE", "severity": "critical", "text": w["text"]})
+        elif w["state"] in ("STOPPED", "NEVER_STARTED"):
+            incidents.append({"kind": "WORKER_NOT_RUNNING", "severity": "critical" if c.mode == "PAPER_AUTO" else "warning",
+                              "text": w["text"] + " No decisions are recorded and no orders are managed until it runs."})
         if last_any and not last_any.ok:
             incidents.append({"kind": "BROKER_UNREACHABLE", "severity": "warning", "text": last_any.error})
         acct = snap.account if snap else None
@@ -857,11 +860,14 @@ def _routes(app: FastAPI):
                        "api_key_id": mask(cfg.alpaca_api_key_id), "api_secret": mask(cfg.alpaca_api_secret_key), "data_feed": cfg.alpaca_data_feed,
                        "bind": f"{cfg.bind_host}:{cfg.port}", "deployment_mode": cfg.deployment_mode, "usd_to_aed": str(cfg.usd_to_aed),
                        "ntfy_server": cfg.ntfy_server, "ntfy_topic": mask(cfg.ntfy_topic), "ntfy_token": mask(cfg.ntfy_token),
+                       "heartbeat_url": mask(cfg.heartbeat_url),
                        "db_path": str(cfg.db_path.name)},
             "notifications": {"settings": get_notify_settings(s), "outbox": outbox,
                               "meaning": "ACCEPTED_BY_PROVIDER means ntfy accepted the message; it does not prove your phone displayed it. SUPPRESSED means push is not enabled/configured; the in-app inbox still has it."},
             "backups": [{"name": b.name, "size": b.stat().st_size, "modified": datetime.fromtimestamp(b.stat().st_mtime, UTC).isoformat()} for b in backups],
             "monitoring_routine": monitoring_routine(st.cal, now),
+            "heartbeat": {"configured": bool(cfg.heartbeat_url), **((s.get(KV, "heartbeat_status").value if s.get(KV, "heartbeat_status") else {}) or {}),
+                          "meaning": "An external monitor that alerts you when pings STOP. Configure ORBIT_HEARTBEAT_URL (https) on the server."},
         }
 
     @app.post("/api/ops/connection-test")

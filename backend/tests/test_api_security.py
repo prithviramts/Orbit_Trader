@@ -272,3 +272,20 @@ def test_paused_state_persists_across_restart(tmp_path):
     login(c)
     ov = c.get("/api/overview").json()
     assert ov["flags"]["security_paused"] and ov["mode"] == "OBSERVE"
+
+
+def test_remote_mode_accepts_only_public_https_origin(tmp_path):
+    s = Settings(_env_file=None, ORBIT_DATA_DIR=str(tmp_path), ORBIT_BIND_HOST="0.0.0.0", ORBIT_DEPLOYMENT_MODE="remote",
+                 ORBIT_PUBLIC_ORIGIN="https://orbit.tailnet-example.ts.net")
+    db = Database(tmp_path / "rm.sqlite3")
+    init_db(db.engine)
+    with db.session() as x:
+        auth.set_password(x, PW)
+    c = TestClient(create_app(s, db), base_url="https://orbit.tailnet-example.ts.net")
+    pub = "https://orbit.tailnet-example.ts.net"
+    r = c.post("/api/auth/login", json={"password": PW}, headers={"Origin": pub})
+    assert r.status_code == 200 and "secure" in r.headers["set-cookie"].lower()
+    csrf = r.json()["csrf_token"]
+    assert c.post("/api/controls/pause", headers={"Origin": "http://127.0.0.1:8765", "X-CSRF-Token": csrf}).status_code == 403
+    assert c.post("/api/controls/pause", headers={"Origin": pub, "X-CSRF-Token": csrf}).status_code == 200
+    assert c.get("/api/overview", headers={"Host": "evil.example"}).status_code == 400

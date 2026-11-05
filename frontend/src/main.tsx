@@ -10,6 +10,7 @@ import { Research } from "./pages/Research";
 import { Learn } from "./pages/Learn";
 import { Journal } from "./pages/Journal";
 import { Operations, Security, Setup } from "./pages/Ops";
+import { Status } from "./pages/Status";
 import "./styles.css";
 
 function getTheme(): string {
@@ -110,6 +111,28 @@ function TopBar({ theme, setTheme, onLogout }: { theme: string; setTheme: (t: st
   );
 }
 
+function Sidebar({ links }: { links: [string, string, string][] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <aside className={`sidebar ${open ? "menu-open" : ""}`}>
+      <div className="sidebar-head">
+        <Wordmark />
+        <button className="menu-toggle" aria-expanded={open} aria-controls="mainnav" onClick={() => setOpen(!open)}>
+          {open ? "✕ Close" : "☰ Menu"}
+        </button>
+      </div>
+      <nav id="mainnav" className="nav" aria-label="Main" onClick={() => setOpen(false)}>
+        {links.map(([to, icon, label]) => (
+          <NavLink key={to} to={to} end={to === "/"}>
+            <span aria-hidden="true">{icon}</span>
+            {label}
+          </NavLink>
+        ))}
+      </nav>
+    </aside>
+  );
+}
+
 function App() {
   const [auth, setAuth] = useState<"unknown" | "in" | "out">("unknown");
   const [theme, setThemeState] = useState(getTheme());
@@ -142,24 +165,14 @@ function App() {
   if (auth === "unknown") return <p className="muted" style={{ padding: "2rem" }}>Loading…</p>;
   if (auth === "out") return <Login onDone={check} />;
   const links: [string, string, string][] = [
-    ["/", "◉", "Overview"], ["/setup", "✚", "Setup"], ["/market", "↗", "Market & strategy"], ["/decisions", "☰", "Decisions"],
+    ["/status", "✔", "Status (phone)"], ["/", "◉", "Overview"], ["/setup", "✚", "Setup"], ["/market", "↗", "Market & strategy"], ["/decisions", "☰", "Decisions"],
     ["/orders", "⇄", "Orders & positions"], ["/research", "∑", "Research"], ["/learn", "✎", "Learn"], ["/journal", "✍", "Journal & costs"],
     ["/ops", "⚙", "Operations"], ["/security", "⛨", "Security"],
   ];
   return (
     <BrowserRouter>
       <div className="shell">
-        <aside className="sidebar">
-          <Wordmark />
-          <nav className="nav" aria-label="Main">
-            {links.map(([to, icon, label]) => (
-              <NavLink key={to} to={to} end={to === "/"}>
-                <span aria-hidden="true">{icon}</span>
-                {label}
-              </NavLink>
-            ))}
-          </nav>
-        </aside>
+        <Sidebar links={links} />
         <main className="main">
           <TopBar
             theme={theme}
@@ -175,6 +188,7 @@ function App() {
           />
           <Routes>
             <Route path="/" element={<Overview />} />
+            <Route path="/status" element={<Status />} />
             <Route path="/setup" element={<Setup />} />
             <Route path="/market" element={<Market />} />
             <Route path="/decisions" element={<Decisions />} />

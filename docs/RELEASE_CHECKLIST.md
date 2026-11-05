@@ -18,7 +18,10 @@ against a real Alpaca paper account.
 | M4 Backup / restore drill | Verified manually | `restore-drill` on the demo DB: RESTORE DRILL PASSED |
 | M4 Graceful stop + lease release | Verified manually | worker log "Worker stopped cleanly", lease `stopped` |
 | M4 Launch scripts | Implemented | `start.ps1`/`stop.ps1` written; run by you on first setup (I launched via the same modules) |
-| M4 Container deployment | **Blocked** | Docker not installed here; files unbuilt |
+| M4 Container deployment | **Blocked** | Server scripts, compose and Dockerfile written and syntax-checked; not built/run (no Docker/server yet) |
+| CI (GitHub Actions) | Implemented | Runs tests, pip-audit, npm audit, build, secret scan; first run happens on push |
+| External heartbeat | Test passed | `tests/test_heartbeat.py`; real monitor alerting **Blocked** until you create a check |
+| Phone status screen + mobile menu | Inspected | `/status` at 375 px width |
 | Dependency audit | Test passed | pip-audit: no known vulnerabilities; npm audit: 0 (after upgrading Starlette/FastAPI, python-multipart, pytest, React Router) |
 | Secret scan | Test passed | simple pattern scan, no hits; not a full scanner |
 | Adversarial review | Done (self-review) | 8 issues found and fixed with regression tests (see below); not an independent review |

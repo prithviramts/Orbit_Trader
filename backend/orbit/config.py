@@ -52,6 +52,10 @@ class Settings(BaseSettings):
 
     worker_tick_seconds: int = Field(default=20, alias="ORBIT_WORKER_TICK_SECONDS")
 
+    # Optional external dead-man's-switch (e.g. a healthchecks-style ping URL). The URL is a secret.
+    heartbeat_url: SecretStr | None = Field(default=None, alias="ORBIT_HEARTBEAT_URL")
+    heartbeat_interval_seconds: int = Field(default=300, alias="ORBIT_HEARTBEAT_INTERVAL_SECONDS")
+
     @field_validator("usd_to_aed")
     @classmethod
     def _rate_positive(cls, v: Decimal) -> Decimal:
@@ -59,7 +63,7 @@ class Settings(BaseSettings):
             raise ValueError("USD_TO_AED must be a positive reference rate")
         return v
 
-    @field_validator("alpaca_api_key_id", "alpaca_api_secret_key", "ntfy_topic", "ntfy_token", mode="before")
+    @field_validator("alpaca_api_key_id", "alpaca_api_secret_key", "ntfy_topic", "ntfy_token", "heartbeat_url", mode="before")
     @classmethod
     def _empty_is_none(cls, v):
         if v is None:
@@ -95,9 +99,12 @@ class Settings(BaseSettings):
 
     @property
     def allowed_hosts(self) -> set[str]:
+        loopback = {f"127.0.0.1:{self.port}", f"localhost:{self.port}"}
         if self.deployment_mode == "remote" and self.public_origin:
-            return {urlparse(self.public_origin).netloc}
-        return {f"127.0.0.1:{self.port}", f"localhost:{self.port}"}
+            # The HTTPS proxy (e.g. `tailscale serve`) may forward either the public name or the loopback
+            # upstream as Host. Loopback is only reachable from the server itself (port published on 127.0.0.1).
+            return {urlparse(self.public_origin).netloc} | loopback
+        return loopback
 
 
 def assert_paper_url(url: str) -> str:
@@ -152,13 +159,13 @@ _SECRET_PATTERNS = [
 
 def _known_secret_values() -> list[str]:
     vals = []
-    for name in ("APCA_API_KEY_ID", "APCA_API_SECRET_KEY", "NTFY_TOKEN", "NTFY_TOPIC"):
+    for name in ("APCA_API_KEY_ID", "APCA_API_SECRET_KEY", "NTFY_TOKEN", "NTFY_TOPIC", "ORBIT_HEARTBEAT_URL"):
         v = os.environ.get(name)
         if v and len(v) >= 6:
             vals.append(v)
     try:
         s = get_settings()
-        for sv in (s.alpaca_api_key_id, s.alpaca_api_secret_key, s.ntfy_token, s.ntfy_topic):
+        for sv in (s.alpaca_api_key_id, s.alpaca_api_secret_key, s.ntfy_token, s.ntfy_topic, s.heartbeat_url):
             if sv is not None:
                 raw = sv.get_secret_value()
                 if raw and len(raw) >= 6:
