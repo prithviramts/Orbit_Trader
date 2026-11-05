@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { LivePanel } from "../live";
+import { useSpyQuote } from "../ticker";
 import { Badge, DubaiTime, ErrorNote, Loading, Money, pct, StateBadge, usePoll } from "../components";
 
 export function Overview() {
@@ -57,7 +58,10 @@ export function Overview() {
         </div>
         <div className="card tight">
           <div className="kpi-label">Strategy holding</div>
-          <div className="kpi-value num">{o.strategy_position ? `${o.strategy_position.held_qty} SPY` : "—"}</div>
+          <div className="kpi-value num" title={o.strategy_position ? `${o.strategy_position.held_qty} SPY exactly` : undefined}>
+            {o.strategy_position ? `${Number(o.strategy_position.held_qty).toFixed(4)} SPY` : "—"}
+          </div>
+          <HoldingValue qty={o.strategy_position?.held_qty} cost={o.strategy_position?.cost_basis?.usd} />
           <div className="muted small">Signal target: {o.strategy_position?.signal_target ?? "—"}</div>
         </div>
       </div>
@@ -139,6 +143,23 @@ export function Overview() {
         ) : <p className="muted">No events yet.</p>}
       </div>
       <p className="muted small">AED amounts use the reference rate {o.fx.rate} ({o.fx.source})</p>
+    </div>
+  );
+}
+
+/** Live value of the strategy's SPY and its unrealised profit/loss vs what was paid (display only, IEX price). */
+function HoldingValue({ qty, cost }: { qty?: string; cost?: string }) {
+  const q = useSpyQuote();
+  const n = Number(qty || 0);
+  if (!q || !n || !cost) return null;
+  const value = n * q.price;
+  const pl = value - Number(cost);
+  const up = pl >= 0;
+  return (
+    <div className="small">
+      Worth ≈ USD {value.toFixed(2)} · paid {Number(cost).toFixed(2)} ·{" "}
+      <span className={`chg ${up ? "up" : "down"}`}>{up ? "▲ +" : "▼ "}{pl.toFixed(2)} USD ({up ? "+" : ""}{((pl / Number(cost)) * 100).toFixed(2)}%)</span>
+      <span className="muted"> ≈ AED {(pl * 3.6725).toFixed(2)}</span>
     </div>
   );
 }
