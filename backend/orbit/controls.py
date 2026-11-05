@@ -10,6 +10,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from orbit import alerts
 from orbit.broker.base import make_client_order_id
 from orbit.db import Decision, EquityMark, OrderIntent, ReconciliationReport, StrategyVersion
 from orbit.engine import (
@@ -120,8 +121,8 @@ def _entry_from_decision(s: Session, dec: Decision, now: datetime, cal: MarketCa
     s.add(it)
     s.flush()
     transition_note(s, it, "Intent persisted before any broker contact.")
-    emit(s, "intent_created", "info", "New order intent: BUY SPY", it.reason + f" Execution session {sess.day}.",
-         f"intent:{it.client_order_id}", ref=f"intent:{it.id}")
+    title, body = alerts.planned_text(s, it)
+    emit(s, "intent_created", "info", title, body, f"intent:{it.client_order_id}", ref=f"intent:{it.id}")
     return it.id
 
 

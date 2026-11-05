@@ -932,7 +932,7 @@ def _routes(app: FastAPI):
             "config": {"broker": "Alpaca PAPER (live route does not exist)", "base_url": cfg.alpaca_base_url,
                        "api_key_id": mask(cfg.alpaca_api_key_id), "api_secret": mask(cfg.alpaca_api_secret_key), "data_feed": cfg.alpaca_data_feed,
                        "bind": f"{cfg.bind_host}:{cfg.port}", "deployment_mode": cfg.deployment_mode, "usd_to_aed": str(cfg.usd_to_aed),
-                       "ntfy_server": cfg.ntfy_server, "ntfy_topic": mask(cfg.ntfy_topic), "ntfy_token": mask(cfg.ntfy_token),
+                       "ntfy_server": cfg.ntfy_server, "ntfy_topic": mask(cfg.ntfy_topic), "ntfy_token": mask(cfg.ntfy_token), "telegram": "configured (private chat)" if cfg.telegram_configured else "not set",
                        "heartbeat_url": mask(cfg.heartbeat_url),
                        "db_path": str(cfg.db_path.name)},
             "notifications": {"settings": get_notify_settings(s), "outbox": outbox,

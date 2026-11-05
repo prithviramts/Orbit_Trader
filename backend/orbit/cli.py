@@ -77,8 +77,71 @@ def cmd_check(_):
     st = get_settings()
     probs = validate_startup(st)
     print(json.dumps({"broker_configured": st.broker_configured, "base_url": st.alpaca_base_url, "feed": st.alpaca_data_feed,
-                      "bind": f"{st.bind_host}:{st.port}", "ntfy_topic_set": bool(st.ntfy_topic), "problems": probs}, indent=2))
+                      "bind": f"{st.bind_host}:{st.port}", "ntfy_topic_set": bool(st.ntfy_topic),
+                      "telegram_configured": st.telegram_configured, "problems": probs}, indent=2))
     return 1 if probs else 0
+
+
+def cmd_telegram_setup(a):
+    """Find the chat id of your private chat with your bot (after you send it any message) and save it to .env."""
+    import re
+
+    import httpx
+
+    from orbit.config import ROOT
+    st = get_settings()
+    if not st.telegram_bot_token:
+        print("TELEGRAM_BOT_TOKEN is not set in .env. Create a bot with @BotFather first (see docs/ALERTS.md).")
+        return 1
+    tok = st.telegram_bot_token.get_secret_value()
+    try:
+        me = httpx.get(f"https://api.telegram.org/bot{tok}/getMe", timeout=10).json()
+        upd = httpx.get(f"https://api.telegram.org/bot{tok}/getUpdates", timeout=10).json()
+    except httpx.HTTPError as e:
+        print(f"Could not reach Telegram: {type(e).__name__}")
+        return 1
+    if not me.get("ok"):
+        print("Telegram did not accept the bot token. Check TELEGRAM_BOT_TOKEN in .env (copy it again from @BotFather).")
+        return 1
+    print(f"Bot found: @{me['result'].get('username')}")
+    chats = {}
+    for u in upd.get("result", []):
+        c = (u.get("message") or {}).get("chat") or {}
+        if c.get("type") == "private":
+            chats[str(c["id"])] = c.get("first_name", "")
+    if not chats:
+        print(f"No private messages yet. Open Telegram, search @{me['result'].get('username')}, press Start, then run this again.")
+        return 1
+    if len(chats) > 1:
+        print("More than one person has messaged this bot:", ", ".join(f"{n} ({i})" for i, n in chats.items()))
+        print("Only you should use it. Make a new bot, or put the right chat id in .env yourself.")
+        return 1
+    chat_id, name = next(iter(chats.items()))
+    env = ROOT / ".env"
+    text = env.read_text(encoding="utf-8") if env.exists() else ""
+    line = f"TELEGRAM_CHAT_ID={chat_id}"
+    if re.search(r"(?m)^TELEGRAM_CHAT_ID=", text):
+        text = re.sub(r"(?m)^TELEGRAM_CHAT_ID=.*$", line, text)
+    else:
+        text = text.rstrip("\n") + "\n" + line + "\n"
+    env.write_text(text, encoding="utf-8")  # same file, so its access permissions are kept
+    print(f"Saved your chat ({name}) to .env. Restart Orbit, then use 'Send test notification' on the Operations page.")
+    return 0
+
+
+def cmd_telegram_test(_):
+    from orbit.notify import TelegramSender
+    st = get_settings()
+    if not st.telegram_configured:
+        print("Telegram is not configured (need TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in .env).")
+        return 1
+    try:
+        TelegramSender(st).send("Orbit test", "✅ Orbit can reach your Telegram. Trade alerts will arrive here.", 3)
+    except RuntimeError as e:
+        print(f"Failed: {e}")
+        return 1
+    print("Sent. Check Telegram.")
+    return 0
 
 
 def main(argv=None):
@@ -89,6 +152,8 @@ def main(argv=None):
     r = sub.add_parser("restore"); r.add_argument("file"); r.set_defaults(fn=cmd_restore)
     sub.add_parser("restore-drill").set_defaults(fn=cmd_restore_drill)
     sub.add_parser("check").set_defaults(fn=cmd_check)
+    sub.add_parser("telegram-setup").set_defaults(fn=cmd_telegram_setup)
+    sub.add_parser("telegram-test").set_defaults(fn=cmd_telegram_test)
     a = ap.parse_args(argv)
     return a.fn(a)
 

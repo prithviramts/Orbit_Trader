@@ -153,9 +153,11 @@ export function Operations() {
       </div>
       <div className="grid g2" style={{ marginTop: "1rem" }}>
         <div className="card">
-          <h2>Phone notifications (optional, ntfy)</h2>
-          <p className="small">The in-app inbox works without any setup. Push uses ntfy. An unguessable topic is <strong>not</strong> private authentication, so pushes contain only a redacted summary unless you configure an ntfy access token and opt in.</p>
-          <p className="small">Topic: {o.config?.ntfy_topic} · Token: {o.config?.ntfy_token} · Server: {o.config?.ntfy_server}</p>
+          <h2>Phone notifications</h2>
+          <p className="small"><strong>Telegram (recommended):</strong> {o.config?.telegram ?? "not set"}. Messages go to your private chat with your own bot and include
+            the full details: what was bought or sold, price, value in USD and AED, why, and profit or loss. Setup: <code>docs/ALERTS.md</code>.</p>
+          <p className="small"><strong>ntfy (optional):</strong> topic {o.config?.ntfy_topic} · token {o.config?.ntfy_token}. A topic on a public server can be read by anyone who
+            knows its name, so ntfy messages stay a short summary.</p>
           <label className="row"><input type="checkbox" checked={!!ns.enabled} onChange={(e) => save({ enabled: e.target.checked })} /> Send push notifications</label>
           <label className="row"><input type="checkbox" checked={!!ns.include_financial_details} onChange={(e) => save({ include_financial_details: e.target.checked })} /> Include sizes/prices (requires ntfy token)</label>
           <div className="row">

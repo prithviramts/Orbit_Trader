@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     ntfy_server: str = Field(default="https://ntfy.sh", alias="NTFY_SERVER")
     ntfy_topic: SecretStr | None = Field(default=None, alias="NTFY_TOPIC")
     ntfy_token: SecretStr | None = Field(default=None, alias="NTFY_TOKEN")
+    # Private Telegram chat for detailed alerts. Both are secrets: the token controls the bot.
+    telegram_bot_token: SecretStr | None = Field(default=None, alias="TELEGRAM_BOT_TOKEN")
+    telegram_chat_id: SecretStr | None = Field(default=None, alias="TELEGRAM_CHAT_ID")
 
     worker_tick_seconds: int = Field(default=20, alias="ORBIT_WORKER_TICK_SECONDS")
 
@@ -63,7 +66,8 @@ class Settings(BaseSettings):
             raise ValueError("USD_TO_AED must be a positive reference rate")
         return v
 
-    @field_validator("alpaca_api_key_id", "alpaca_api_secret_key", "ntfy_topic", "ntfy_token", "heartbeat_url", mode="before")
+    @field_validator("alpaca_api_key_id", "alpaca_api_secret_key", "ntfy_topic", "ntfy_token", "heartbeat_url",
+                     "telegram_bot_token", "telegram_chat_id", mode="before")
     @classmethod
     def _empty_is_none(cls, v):
         if v is None:
@@ -90,6 +94,10 @@ class Settings(BaseSettings):
     @property
     def broker_configured(self) -> bool:
         return bool(self.alpaca_api_key_id and self.alpaca_api_secret_key)
+
+    @property
+    def telegram_configured(self) -> bool:
+        return bool(self.telegram_bot_token and self.telegram_chat_id)
 
     @property
     def allowed_origins(self) -> set[str]:
@@ -154,18 +162,19 @@ _SECRET_PATTERNS = [
     re.compile(r"(?i)(secret|token|password|api[_-]?key)(['\"]?\s*[:=]\s*['\"]?)([^\s'\",}]+)"),
     re.compile(r"\b(PK|AK|CK)[A-Z0-9]{14,}\b"),  # Alpaca-style key ids
     re.compile(r"\btk_[A-Za-z0-9]{10,}\b"),  # ntfy tokens
+    re.compile(r"(?<![0-9])\d{6,12}:[A-Za-z0-9_-]{30,}"),  # Telegram bot tokens (also inside .../bot<token>/...)
 ]
 
 
 def _known_secret_values() -> list[str]:
     vals = []
-    for name in ("APCA_API_KEY_ID", "APCA_API_SECRET_KEY", "NTFY_TOKEN", "NTFY_TOPIC", "ORBIT_HEARTBEAT_URL"):
+    for name in ("APCA_API_KEY_ID", "APCA_API_SECRET_KEY", "NTFY_TOKEN", "NTFY_TOPIC", "ORBIT_HEARTBEAT_URL", "TELEGRAM_BOT_TOKEN"):
         v = os.environ.get(name)
         if v and len(v) >= 6:
             vals.append(v)
     try:
         s = get_settings()
-        for sv in (s.alpaca_api_key_id, s.alpaca_api_secret_key, s.ntfy_token, s.ntfy_topic, s.heartbeat_url):
+        for sv in (s.alpaca_api_key_id, s.alpaca_api_secret_key, s.ntfy_token, s.ntfy_topic, s.heartbeat_url, s.telegram_bot_token):
             if sv is not None:
                 raw = sv.get_secret_value()
                 if raw and len(raw) >= 6:
@@ -185,6 +194,7 @@ def redact(text: object) -> str:
     s = _SECRET_PATTERNS[2].sub(r"\1\2[REDACTED]", s)
     s = _SECRET_PATTERNS[3].sub("[REDACTED]", s)
     s = _SECRET_PATTERNS[4].sub("[REDACTED]", s)
+    s = _SECRET_PATTERNS[5].sub("[REDACTED]", s)
     return s
 
 

@@ -30,7 +30,7 @@ from orbit.engine import Engine
 from orbit.logging_setup import setup_logging
 from orbit.market_calendar import DUBAI, MarketCalendar, now_utc, xnys_calendar
 from orbit.heartbeat import Heartbeat
-from orbit.notify import NtfySender, dispatch_outbox, emit
+from orbit.notify import build_senders, dispatch_outbox, emit
 
 log = logging.getLogger("orbit.worker")
 LEASE_NAME = "trader"
@@ -176,7 +176,7 @@ def main() -> int:
     if stop_flag.exists():
         stop_flag.unlink()
     engine = build_engine(settings, db)
-    sender = NtfySender(settings) if settings.ntfy_topic else None
+    sender = build_senders(settings)  # {channel: sender}; empty when no channel is configured
     hb = Heartbeat(settings)
     with db.session() as s:
         emit(s, "worker_started", "info", "Trading worker started",

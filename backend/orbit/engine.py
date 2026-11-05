@@ -41,6 +41,7 @@ from orbit.db import (
 )
 from orbit.market_calendar import UTC, MarketCalendar
 from orbit.money import D, floor_qty, money_pair
+from orbit import alerts
 from orbit.notify import emit
 from orbit.risk import DrawdownState, RiskPolicy, update_drawdown
 from orbit.strategy import CASH, INSUFFICIENT, INVESTED, STRATEGY_NAME, StrategyParams, entry_notional, evaluate_signal
@@ -361,8 +362,9 @@ class Engine:
             key = f"{bo.id}:{cum}"
             try:
                 with s.begin_nested():
-                    s.add(Fill(intent_id=it.id, broker_order_id=bo.id, fill_key=key, side=it.side, qty=inc,
-                               price=inc_price, at=bo.updated_at or now))
+                    fill = Fill(intent_id=it.id, broker_order_id=bo.id, fill_key=key, side=it.side, qty=inc,
+                                price=inc_price, at=bo.updated_at or now)
+                    s.add(fill)
                     s.flush()
                 applied = True
             except IntegrityError:
@@ -383,8 +385,9 @@ class Engine:
                 it.applied_qty = cum
                 it.filled_qty = cum
                 it.filled_avg_price = bo.filled_avg_price
-                emit(s, "order_filled", "info", f"Fill confirmed: {it.side} {self.symbol}",
-                     f"{it.side} {inc} {self.symbol} at {inc_price:.4f} USD (cumulative {cum}). Broker status {bo.status}.",
+                title, body = alerts.fill_text(s, it, fill, pos.held_qty, pos.cost_basis)
+                emit(s, "order_filled", "info", title,
+                     body + f"\n(cumulative filled {cum}; broker status {bo.status})",
                      f"fill:{key}", ref=f"intent:{it.id}", settings=self.settings)
         st = bo.status
         if st == "filled":
@@ -639,8 +642,8 @@ class Engine:
             s.add(it)
             s.flush()
             transition_note(s, it, "Intent persisted before any broker contact.")
-            emit(s, "intent_created", "info", f"New order intent: {it.side} {self.symbol}",
-                 f"{reason} Execution session {it.execution_session}.", f"intent:{it.client_order_id}", ref=f"intent:{it.id}", settings=self.settings)
+            title, body = alerts.planned_text(s, it)
+            emit(s, "intent_created", "info", title, body, f"intent:{it.client_order_id}", ref=f"intent:{it.id}", settings=self.settings)
         elif action in ("HOLD", "SKIP"):
             emit(s, "decision_routine", "routine", f"{action} on {day}", reason, f"decision:{akey}:{day}:{sequence}", ref=f"decision:{d.id}", settings=self.settings)
             from orbit.notify import queue_daily_summary
@@ -850,8 +853,8 @@ class Engine:
             if result is not None:
                 transition(s, it, "SUBMITTED", f"Broker accepted order {result.id} (accepted is not filled).", {"broker_status": result.status}, now)
                 self._apply_broker_order(s, it, result, now)
-                emit(s, "order_submitted", "info", f"Order submitted: {it.side} {self.symbol}",
-                     f"Client id {it.client_order_id}; broker status {result.status}.", f"submitted:{it.client_order_id}", ref=f"intent:{it.id}", settings=self.settings)
+                title, body = alerts.submitted_text(s, it, result.status)
+                emit(s, "order_submitted", "info", title, body, f"submitted:{it.client_order_id}", ref=f"intent:{it.id}", settings=self.settings)
                 return
             kind, msg = err
             if kind == "rejected":

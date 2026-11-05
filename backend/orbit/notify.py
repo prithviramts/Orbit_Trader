@@ -1,8 +1,10 @@
-"""Durable event inbox + notification outbox + optional ntfy adapter.
+"""Durable event inbox + notification outbox + optional ntfy and Telegram adapters.
 
 - The inbox works with no external credentials.
-- External (ntfy) messages default to a REDACTED summary: no account id, size, balance or P&L.
-  Financial details only if the owner opts in AND an ntfy access token is configured.
+- ntfy topics on a public server can be read by anyone who knows the name, so ntfy messages default to a
+  REDACTED summary: no size, balance or P&L. Details only if the owner opts in AND an ntfy token is configured.
+- Telegram sends to one private chat (your own chat with your own bot), so it carries the full trade
+  details and reasons. It never carries keys or account numbers.
 - Outbox failures retry with backoff and never touch trading state.
 - "Accepted by provider" only means ntfy accepted the HTTP request, not that a phone displayed it.
 - Notification links may open the app; they never authorise anything (all controls need a session + CSRF).
@@ -90,14 +92,23 @@ def emit(s: Session, type_: str, severity: str, title: str, body: str, dedupe_ke
 
 def _queue(s: Session, ev: EventInbox, settings: Settings | None) -> None:
     ns = get_notify_settings(s)
-    detailed = bool(ns.get("include_financial_details") and settings and settings.ntfy_token)
-    msg = ev.body if detailed else ev.public_summary
-    status = "QUEUED" if (ns.get("enabled") and settings and settings.ntfy_topic) else "SUPPRESSED"
+    enabled = bool(ns.get("enabled") and settings)
+    if settings and settings.telegram_configured:
+        # private chat: full details
+        _add_outbox(s, ev, "telegram", "QUEUED" if enabled else "SUPPRESSED", ev.title, ev.body[:3500])
+    if settings and settings.ntfy_topic:
+        detailed = bool(ns.get("include_financial_details") and settings.ntfy_token)
+        _add_outbox(s, ev, "ntfy", "QUEUED" if enabled else "SUPPRESSED",
+                    ev.title if detailed else _public_title(ev), (ev.body if detailed else ev.public_summary)[:1000])
+    if not (settings and (settings.telegram_configured or settings.ntfy_topic)):
+        _add_outbox(s, ev, "ntfy", "SUPPRESSED", _public_title(ev), ev.public_summary[:1000])
+
+
+def _add_outbox(s: Session, ev: EventInbox, channel: str, status: str, title: str, message: str) -> None:
     try:
         with s.begin_nested():
-            s.add(NotificationOutbox(event_id=ev.id, channel="ntfy", dedupe_key=f"ntfy:{ev.dedupe_key}"[:160],
-                                     status=status, priority=SEVERITY_PRIORITY[ev.severity],
-                                     title=ev.title if detailed else _public_title(ev), message=msg[:1000],
+            s.add(NotificationOutbox(event_id=ev.id, channel=channel, dedupe_key=f"{channel}:{ev.dedupe_key}"[:160],
+                                     status=status, priority=SEVERITY_PRIORITY[ev.severity], title=title, message=message,
                                      next_attempt_at=datetime(2000, 1, 1, tzinfo=UTC)))  # due immediately
             s.flush()
     except IntegrityError:
@@ -140,8 +151,50 @@ class NtfySender:
             raise RuntimeError(f"ntfy HTTP {r.status_code}")
 
 
+class TelegramSender:
+    """Sends to one private chat via the Telegram Bot API. Errors never include the token."""
+
+    API = "https://api.telegram.org"
+
+    def __init__(self, settings: Settings, client: httpx.Client | None = None):
+        if not settings.telegram_configured:
+            raise RuntimeError("Telegram is not configured")
+        self._token = settings.telegram_bot_token.get_secret_value()
+        self._chat = settings.telegram_chat_id.get_secret_value()
+        self.client = client or httpx.Client(timeout=httpx.Timeout(10.0, connect=5.0), follow_redirects=False)
+
+    def send(self, title: str, message: str, priority: int) -> None:
+        text = message if message.startswith(("🟢", "🔴", "📤", "🗓")) else f"{title}\n\n{message}"
+        if priority >= 5:
+            text = "⛔ ACTION NEEDED\n" + text
+        try:
+            r = self.client.post(f"{self.API}/bot{self._token}/sendMessage",
+                                 json={"chat_id": self._chat, "text": text[:4000], "disable_web_page_preview": True,
+                                       "disable_notification": priority <= 2})
+        except httpx.HTTPError as e:
+            raise RuntimeError(f"Telegram request failed: {type(e).__name__}") from None  # message may contain the URL
+        if r.status_code >= 300:
+            desc = ""
+            try:
+                desc = str(r.json().get("description", ""))[:120]
+            except ValueError:
+                pass
+            raise RuntimeError(f"Telegram HTTP {r.status_code} {redact(desc)}".strip())
+
+
+def build_senders(settings: Settings) -> dict:
+    senders = {}
+    if settings.ntfy_topic:
+        senders["ntfy"] = NtfySender(settings)
+    if settings.telegram_configured:
+        senders["telegram"] = TelegramSender(settings)
+    return senders
+
+
 def dispatch_outbox(s: Session, sender, now: datetime | None = None, limit: int = 20) -> dict:
-    """Send due notifications. Never raises; never touches trading tables."""
+    """Send due notifications. `sender` is one sender (used for ntfy) or a {channel: sender} dict.
+    Never raises; never touches trading tables."""
+    senders = sender if isinstance(sender, dict) else ({"ntfy": sender} if sender is not None else {})
     now = now or now_utc()
     ns = get_notify_settings(s)
     stats = {"sent": 0, "failed": 0, "held": 0}
@@ -165,9 +218,15 @@ def dispatch_outbox(s: Session, sender, now: datetime | None = None, limit: int 
             n.last_error = "rate limited locally"
             stats["held"] += 1
             continue
+        snd = senders.get(n.channel)
+        if snd is None:
+            n.next_attempt_at = now + timedelta(minutes=30)
+            n.last_error = f"{n.channel} not configured"
+            stats["held"] += 1
+            continue
         n.attempts += 1
         try:
-            sender.send(n.title, n.message, n.priority)
+            snd.send(n.title, n.message, n.priority)
             n.status = "ACCEPTED_BY_PROVIDER"
             n.accepted_at = now
             n.last_error = ""
