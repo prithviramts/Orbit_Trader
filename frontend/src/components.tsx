@@ -70,14 +70,34 @@ export function DubaiTime({ t, withNy = false }: { t?: { utc: string; dubai: str
   );
 }
 
+// Last response per API path, kept in memory so revisiting a page shows data instantly and refreshes quietly.
+const pollCache = new Map<string, unknown>();
+const inflight = new Map<string, Promise<unknown>>();
+
+/** Forget cached responses (called on sign-out so nothing lingers in memory). */
+export function clearPollCache() {
+  pollCache.clear();
+}
+
+function fetchShared<T>(path: string): Promise<T> {
+  let p = inflight.get(path) as Promise<T> | undefined;
+  if (!p) {
+    p = get<T>(path).finally(() => inflight.delete(path));
+    inflight.set(path, p);
+  }
+  return p;
+}
+
+/** Poll an API path. Shares in-flight requests, shows cached data at once, and pauses while the tab is hidden. */
 export function usePoll<T>(path: string | null, ms = 15000) {
-  const [data, setData] = useState<T | null>(null);
+  const [data, setData] = useState<T | null>(() => (path ? (pollCache.get(path) as T) ?? null : null));
   const [error, setError] = useState<string | null>(null);
   const alive = useRef(true);
   const load = useCallback(async () => {
     if (!path) return;
     try {
-      const d = await get<T>(path);
+      const d = await fetchShared<T>(path);
+      pollCache.set(path, d);
       if (alive.current) {
         setData(d);
         setError(null);
@@ -88,15 +108,20 @@ export function usePoll<T>(path: string | null, ms = 15000) {
   }, [path]);
   useEffect(() => {
     alive.current = true;
+    if (path) setData((pollCache.get(path) as T) ?? null);
     load();
-    const id = ms > 0 ? window.setInterval(load, ms) : undefined;
+    const tick = () => { if (document.visibilityState === "visible") load(); };
+    const id = ms > 0 ? window.setInterval(tick, ms) : undefined;
+    const onVis = () => { if (document.visibilityState === "visible") load(); };
     window.addEventListener("orbit:changed", load);
+    document.addEventListener("visibilitychange", onVis);
     return () => {
       alive.current = false;
       window.removeEventListener("orbit:changed", load);
+      document.removeEventListener("visibilitychange", onVis);
       if (id) window.clearInterval(id);
     };
-  }, [load, ms]);
+  }, [load, ms, path]);
   return { data, error, reload: load };
 }
 
@@ -111,7 +136,13 @@ export function ErrorNote({ error }: { error: string | null }) {
 }
 
 export function Loading() {
-  return <p className="muted">Loading…</p>;
+  return (
+    <div className="skeleton-wrap" aria-busy="true" aria-label="Loading">
+      <div className="skeleton" style={{ height: 28, width: "40%" }} />
+      <div className="skeleton" style={{ height: 120 }} />
+      <div className="skeleton" style={{ height: 120 }} />
+    </div>
+  );
 }
 
 /** Confirmation modal with an explanation of the effect; optional password field for sensitive actions. */

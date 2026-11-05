@@ -23,7 +23,7 @@ from sqlalchemy.types import TypeDecorator
 
 from orbit.market_calendar import UTC, now_utc
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2  # v2: forecast table
 
 
 class DecimalText(TypeDecorator):
@@ -399,6 +399,25 @@ class JournalEntry(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=_now)
 
 
+class Forecast(Base):
+    """A user's next-session direction call, recorded before the session opens and scored afterwards.
+    Learning only: forecasts never influence trading."""
+    __tablename__ = "forecast"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(16), default="SPY")
+    target_session: Mapped[date] = mapped_column(Date, unique=True)
+    base_session: Mapped[date] = mapped_column(Date)
+    direction: Mapped[str] = mapped_column(String(8))  # UP | DOWN
+    confidence: Mapped[int] = mapped_column(Integer, default=60)
+    reason: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=_now)
+    base_close: Mapped[Decimal | None] = mapped_column(DecimalText, nullable=True)
+    outcome_close: Mapped[Decimal | None] = mapped_column(DecimalText, nullable=True)
+    outcome: Mapped[str | None] = mapped_column(String(8), nullable=True)  # UP | DOWN | FLAT
+    correct: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    scored_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+
+
 class Expense(Base):
     __tablename__ = "expense"
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -462,7 +481,7 @@ def init_db(engine, backup_dir: Path | None = None, db_path: Path | None = None)
     Base.metadata.create_all(engine)
     with Session(engine) as s:
         if not s.get(SchemaVersion, SCHEMA_VERSION):
-            s.add(SchemaVersion(version=SCHEMA_VERSION, note="initial schema"))
+            s.add(SchemaVersion(version=SCHEMA_VERSION, note="initial schema" if not existing else "added forecast table"))
         if not s.get(ControlState, 1):
             s.add(ControlState(id=1, mode="OBSERVE"))
         s.commit()

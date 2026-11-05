@@ -1,9 +1,11 @@
 import { Link } from "react-router-dom";
+import { LivePanel } from "../live";
 import { Badge, DubaiTime, ErrorNote, Loading, Money, pct, StateBadge, usePoll } from "../components";
 
 export function Overview() {
   const { data: o, error } = usePoll<any>("/api/overview", 15000);
   const ev = usePoll<any>("/api/events", 30000);
+  const chart = usePoll<any>("/api/market/chart?source=auto", 120000);
   if (error) return <ErrorNote error={error} />;
   if (!o) return <Loading />;
   const d = o.last_decision;
@@ -58,6 +60,10 @@ export function Overview() {
           <div className="kpi-value num">{o.strategy_position ? `${o.strategy_position.held_qty} SPY` : "—"}</div>
           <div className="muted small">Signal target: {o.strategy_position?.signal_target ?? "—"}</div>
         </div>
+      </div>
+
+      <div style={{ marginTop: "1rem" }}>
+        <LivePanel stored={chart.data?.available && chart.data.dataset?.mode === "ALPACA" ? chart.data : null} />
       </div>
 
       <div className="grid g2" style={{ marginTop: "1rem" }}>

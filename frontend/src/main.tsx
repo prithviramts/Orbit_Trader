@@ -1,16 +1,27 @@
-import React, { useEffect, useState } from "react";
+import React, { Suspense, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { get, post, setCsrf } from "./api";
-import { Badge, ErrorNote, ModeBadge, usePoll } from "./components";
-import { Overview } from "./pages/Overview";
-import { Market } from "./pages/Market";
-import { DecisionDetail, Decisions, Orders } from "./pages/Decisions";
-import { Research } from "./pages/Research";
-import { Learn } from "./pages/Learn";
-import { Journal } from "./pages/Journal";
-import { Operations, Security, Setup } from "./pages/Ops";
-import { Status } from "./pages/Status";
+import { Badge, clearPollCache, ErrorNote, Loading, ModeBadge, usePoll } from "./components";
+import { Icon, IconName } from "./icons";
+import { TickerChip } from "./ticker";
+
+// Pages load on demand so the first screen appears quickly (charts are only downloaded when needed).
+const lazyPage = <K extends string>(load: () => Promise<Record<K, React.ComponentType>>, name: K) =>
+  React.lazy(() => load().then((m) => ({ default: m[name] })));
+const Overview = lazyPage(() => import("./pages/Overview"), "Overview");
+const Market = lazyPage(() => import("./pages/Market"), "Market");
+const Decisions = lazyPage(() => import("./pages/Decisions"), "Decisions");
+const DecisionDetail = lazyPage(() => import("./pages/Decisions"), "DecisionDetail");
+const Orders = lazyPage(() => import("./pages/Decisions"), "Orders");
+const Research = lazyPage(() => import("./pages/Research"), "Research");
+const Learn = lazyPage(() => import("./pages/Learn"), "Learn");
+const Journal = lazyPage(() => import("./pages/Journal"), "Journal");
+const Operations = lazyPage(() => import("./pages/Ops"), "Operations");
+const Security = lazyPage(() => import("./pages/Ops"), "Security");
+const Setup = lazyPage(() => import("./pages/Ops"), "Setup");
+const Status = lazyPage(() => import("./pages/Status"), "Status");
+const News = lazyPage(() => import("./pages/News"), "News");
 import "./styles.css";
 
 function getTheme(): string {
@@ -85,48 +96,58 @@ function TopBar({ theme, setTheme, onLogout }: { theme: string; setTheme: (t: st
   const ov = usePoll<any>("/api/overview", 15000);
   const o = ov.data;
   return (
-    <div className="topbar" role="status" aria-live="polite">
-      <Badge kind="accent" icon="◎">PAPER</Badge>
-      {o && <ModeBadge mode={o.mode} />}
-      {o?.flags.security_paused && <Badge kind="bad" icon="⛔">SECURITY PAUSED</Badge>}
-      {o?.flags.risk_paused_entries && <Badge kind="warn" icon="⏸">ENTRIES PAUSED (RISK)</Badge>}
-      {o?.flags.new_orders_paused && <Badge kind="warn" icon="⏸">NEW ORDERS PAUSED</Badge>}
-      {o?.flags.review_required && <Badge kind="bad" icon="!">REVIEW REQUIRED</Badge>}
-      {o && (
-        <Badge kind={o.worker.state === "RUNNING" ? "ok" : "bad"} icon={o.worker.state === "RUNNING" ? "●" : "○"} title={o.worker.text}>
-          Worker {o.worker.state.replaceAll("_", " ").toLowerCase()}
-        </Badge>
-      )}
-      {o && (
-        <Badge kind={o.market.is_open_by_calendar ? "ok" : ""} icon={o.market.is_open_by_calendar ? "◷" : "☾"}>
-          Market {o.market.is_open_by_calendar ? "open" : "closed"} (calendar)
-        </Badge>
-      )}
+    <header className="topbar">
+      <TickerChip />
+      <div className="pills" role="status" aria-live="polite">
+        <Badge kind="accent" icon="◎">PAPER</Badge>
+        {o && <ModeBadge mode={o.mode} />}
+        {o?.flags.security_paused && <Badge kind="bad" icon="⛔">SECURITY PAUSED</Badge>}
+        {o?.flags.risk_paused_entries && <Badge kind="warn" icon="⏸">ENTRIES PAUSED (RISK)</Badge>}
+        {o?.flags.new_orders_paused && <Badge kind="warn" icon="⏸">NEW ORDERS PAUSED</Badge>}
+        {o?.flags.review_required && <Badge kind="bad" icon="!">REVIEW REQUIRED</Badge>}
+        {o && (
+          <Badge kind={o.worker.state === "RUNNING" ? "ok" : "bad"} icon={o.worker.state === "RUNNING" ? "●" : "○"} title={o.worker.text}>
+            Worker {o.worker.state.replaceAll("_", " ").toLowerCase()}
+          </Badge>
+        )}
+        {o && (
+          <Badge kind={o.market.is_open_by_calendar ? "ok" : ""} icon={o.market.is_open_by_calendar ? "●" : "☾"}>
+            Market {o.market.is_open_by_calendar ? "open" : "closed"}
+          </Badge>
+        )}
+      </div>
       <span className="spacer" />
-      <button onClick={() => setTheme(theme === "dark" ? "light" : "dark")} aria-label="Toggle light/dark theme">
-        {theme === "dark" ? "☀ Light" : "☾ Dark"}
+      <button className="icon-btn" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} aria-label="Toggle light/dark theme" title="Light/dark theme">
+        <Icon name={theme === "dark" ? "sun" : "moon"} />
       </button>
-      <button onClick={onLogout}>Sign out</button>
-    </div>
+      <button className="ghost" onClick={onLogout}><Icon name="logout" /> Sign out</button>
+    </header>
   );
 }
 
-function Sidebar({ links }: { links: [string, string, string][] }) {
+type NavItem = [string, IconName, string];
+
+function Sidebar({ groups }: { groups: [string, NavItem[]][] }) {
   const [open, setOpen] = useState(false);
   return (
     <aside className={`sidebar ${open ? "menu-open" : ""}`}>
       <div className="sidebar-head">
         <Wordmark />
         <button className="menu-toggle" aria-expanded={open} aria-controls="mainnav" onClick={() => setOpen(!open)}>
-          {open ? "✕ Close" : "☰ Menu"}
+          <Icon name={open ? "close" : "menu"} /> {open ? "Close" : "Menu"}
         </button>
       </div>
       <nav id="mainnav" className="nav" aria-label="Main" onClick={() => setOpen(false)}>
-        {links.map(([to, icon, label]) => (
-          <NavLink key={to} to={to} end={to === "/"}>
-            <span aria-hidden="true">{icon}</span>
-            {label}
-          </NavLink>
+        {groups.map(([title, links]) => (
+          <div key={title} className="nav-group">
+            <div className="nav-title">{title}</div>
+            {links.map(([to, icon, label]) => (
+              <NavLink key={to} to={to} end={to === "/"}>
+                <Icon name={icon} />
+                {label}
+              </NavLink>
+            ))}
+          </div>
         ))}
       </nav>
     </aside>
@@ -158,21 +179,21 @@ function App() {
   };
   useEffect(() => {
     check();
-    const h = () => setAuth("out");
+    const h = () => { clearPollCache(); setAuth("out"); };
     window.addEventListener("orbit:unauthorized", h);
     return () => window.removeEventListener("orbit:unauthorized", h);
   }, []);
-  if (auth === "unknown") return <p className="muted" style={{ padding: "2rem" }}>Loading…</p>;
+  if (auth === "unknown") return <div style={{ padding: "2rem" }}><Loading /></div>;
   if (auth === "out") return <Login onDone={check} />;
-  const links: [string, string, string][] = [
-    ["/status", "✔", "Status (phone)"], ["/", "◉", "Overview"], ["/setup", "✚", "Setup"], ["/market", "↗", "Market & strategy"], ["/decisions", "☰", "Decisions"],
-    ["/orders", "⇄", "Orders & positions"], ["/research", "∑", "Research"], ["/learn", "✎", "Learn"], ["/journal", "✍", "Journal & costs"],
-    ["/ops", "⚙", "Operations"], ["/security", "⛨", "Security"],
+  const groups: [string, NavItem[]][] = [
+    ["Trade", [["/", "home", "Overview"], ["/market", "candles", "Market & live chart"], ["/orders", "swap", "Orders & positions"], ["/decisions", "list", "Decisions"], ["/news", "news", "News & forecasts"]]],
+    ["Learn", [["/research", "flask", "Research"], ["/learn", "book", "Learn"], ["/journal", "pen", "Journal & costs"]]],
+    ["System", [["/status", "phone", "Status (phone)"], ["/setup", "plug", "Setup"], ["/ops", "gear", "Operations"], ["/security", "shield", "Security"]]],
   ];
   return (
     <BrowserRouter>
       <div className="shell">
-        <Sidebar links={links} />
+        <Sidebar groups={groups} />
         <main className="main">
           <TopBar
             theme={theme}
@@ -182,11 +203,13 @@ function App() {
                 await post("/api/auth/logout");
               } finally {
                 setCsrf(null);
+                clearPollCache();
                 setAuth("out");
               }
             }}
           />
           <PageGuard>
+          <Suspense fallback={<Loading />}>
           <Routes>
             <Route path="/" element={<Overview />} />
             <Route path="/status" element={<Status />} />
@@ -198,10 +221,12 @@ function App() {
             <Route path="/research" element={<Research />} />
             <Route path="/learn" element={<Learn />} />
             <Route path="/journal" element={<Journal />} />
+            <Route path="/news" element={<News />} />
             <Route path="/ops" element={<Operations />} />
             <Route path="/security" element={<Security />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
+          </Suspense>
           </PageGuard>
         </main>
       </div>

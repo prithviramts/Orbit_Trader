@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { post } from "../api";
 import { Badge, Confirm, ErrorNote, Loading, Money, pct, SampleBanner, usePoll } from "../components";
-import { Marker, PriceChart } from "../charts";
+import { CandleChart, ChartMarker, dayToTs } from "../candles";
+import { LivePanel } from "../live";
 
 export function Market() {
   const ds = usePoll<any>("/api/datasets", 0);
@@ -12,13 +13,17 @@ export function Market() {
   const nav = useNavigate();
   const [edit, setEdit] = useState(false);
   const c = chart.data;
-  const signals: Marker[] = (c?.decisions || []).filter((d: any) => d.action === "BUY" || d.action === "SELL")
-    .map((d: any) => ({ day: d.session, kind: d.action, ref: d.id, label: `${d.action} decision #${d.id}` }));
-  const fills: Marker[] = (c?.fills || []).map((f: any) => ({ day: f.at.slice(0, 10), kind: f.side, ref: `intent:${f.intent_id}`, label: `${f.side} ${f.qty} @ ${f.price}` }));
+  const storedCandles = (c?.bars || []).map((b: any) => ({ t: dayToTs(b.day), o: Number(b.open), h: Number(b.high), l: Number(b.low), c: Number(b.close) }));
+  const storedSma = (c?.bars || []).filter((b: any) => b.sma200).map((b: any) => ({ t: dayToTs(b.day), value: Number(b.sma200) }));
+  const storedMarks: ChartMarker[] = (c?.decisions || []).filter((d: any) => d.action === "BUY" || d.action === "SELL")
+    .map((d: any) => ({ t: dayToTs(d.session), side: d.action, kind: "decision", text: `${d.action} #${d.id}` }));
   const decByDay = new Map<string, any>((c?.decisions || []).map((d: any) => [d.session, d]));
   return (
     <div>
       <h1>Market &amp; strategy</h1>
+      <p className="lede">Live SPY prices from your Alpaca paper data feed, with Orbit's 200-session average and its own signals on top.</p>
+      <LivePanel stored={chart.data?.dataset?.mode === "ALPACA" ? c : null} />
+      <h2 className="section">Stored daily history <span className="muted small">(the exact data decisions use)</span></h2>
       <div className="row" style={{ marginBottom: ".75rem" }}>
         <label htmlFor="src" className="sr-only">Data source</label>
         <select id="src" value={source} onChange={(e) => setSource(e.target.value)}>
@@ -33,11 +38,11 @@ export function Market() {
         <>
           {c.dataset.mode === "SAMPLE" && <SampleBanner />}
           <div className="card">
-            <h2>SPY close vs 200-session average</h2>
+            <h2>SPY daily candles vs 200-session average</h2>
             <p className="small muted">Source: {c.dataset.source}. Basis: {c.dataset.price_basis}. Dividends {c.dataset.dividends_included ? "included" : "excluded (price-only)"}.
               Range {c.dataset.first_session} → {c.dataset.last_session} ({c.dataset.bar_count} sessions{c.missing_sessions.length ? `, ${c.missing_sessions.length} missing shown as gaps` : ""}).</p>
-            <PriceChart bars={c.bars} missing={c.missing_sessions} signals={signals} fills={fills}
-              onSelect={(m) => typeof m.ref === "number" ? nav(`/decisions/${m.ref}`) : nav("/orders")} />
+            <CandleChart candles={storedCandles} sma={storedSma} markers={storedMarks} intraday={false} height={360}
+              resetKey={`stored-${c.dataset.id}`} ariaLabel="Stored SPY daily candles with the 200-session average. A table alternative follows." />
             {c.dataset.mode !== "ALPACA" && <p className="small muted">Signal and fill markers for this dataset are shown on the Research page (they belong to a backtest ledger, not the paper account).</p>}
           </div>
           <details>

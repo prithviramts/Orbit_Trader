@@ -19,6 +19,7 @@ notepad .env                 # paste your Alpaca PAPER keys locally (never into 
 
 Open http://127.0.0.1:8765. Stop with `.\scripts\stop.ps1`. It starts in **OBSERVE** mode and stays
 there until you press *Enable paper automation* on the Setup page and re-enter your password.
+After an update, `.\scripts\restart-dashboard.ps1` restarts only the dashboard; the trading worker keeps running.
 
 No credentials yet? Everything in Research and Learn works with a labelled **SAMPLE** (synthetic)
 dataset. `.\scripts\mock-demo.ps1` shows a full decision → order → partial fill → exit lifecycle

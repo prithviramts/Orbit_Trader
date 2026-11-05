@@ -21,6 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlparse
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
@@ -29,13 +30,15 @@ from pydantic import BaseModel, Field
 from sqlalchemy import desc, func, or_, select
 
 from orbit import auth, controls
+from orbit import forecasts as fc
+from orbit.data.live import TIMEFRAMES as LIVE_TIMEFRAMES, LiveDataError, LiveMarketData
 from orbit.backtest import CostModel, run_backtest
 from orbit.config import ROOT, Settings, get_settings, mask, redact, validate_startup
 from orbit.data.bars import BarSeries, DataQualityError, bars_from_json, bars_to_json, validate_bars
 from orbit.data.sources import generate_sample_series, parse_csv_import
 from orbit.db import (
     KV, AuditLog, AuthSession, BacktestRun, BrokerSnapshot, ControlState, Database, Dataset, Decision, EquityMark,
-    EventInbox, Expense, Fill, Job, JournalEntry, NotificationOutbox, OrderEvent, OrderIntent, ReconciliationReport,
+    EventInbox, Expense, Fill, Forecast, Job, JournalEntry, NotificationOutbox, OrderEvent, OrderIntent, ReconciliationReport,
     StrategyPosition, StrategyVersion, WorkerLease, backup_database, init_db, verify_backup,
 )
 from orbit.engine import OPEN_INTENT_STATES, active_version, audit, control, version_params
@@ -68,6 +71,7 @@ def create_app(settings: Settings | None = None, db: Database | None = None) -> 
     app.state.pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="research")  # bounded: 1 research job at a time
     app.state.rate = defaultdict(deque)
     app.state.rate_lock = threading.Lock()
+    app.state.live = LiveMarketData(settings)  # read-only market data for the dashboard chart
 
     @app.middleware("http")
     async def guard(request: Request, call_next):
@@ -248,6 +252,12 @@ class NotifyBody(BaseModel):
     include_financial_details: bool | None = None
     quiet_start: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
     quiet_end: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
+
+
+class ForecastBody(BaseModel):
+    direction: Literal["UP", "DOWN"]
+    confidence: int = Field(60, ge=50, le=100)
+    reason: str = Field("", max_length=2000)
 
 
 class ProgressBody(BaseModel):
@@ -452,6 +462,69 @@ def _routes(app: FastAPI):
         quality = validate_bars(series.bars, st.cal)
         return {"available": True, "dataset": {"id": ds.id, **(ds.describe or {})}, "bars": bars, "decisions": decisions, "fills": fills,
                 "missing_sessions": quality["missing_sessions"][:200]}
+
+    @app.get("/api/market/live")
+    def market_live(tf: str = "5Min", _=Depends(require_session)):
+        """Recent candles + latest trade for SPY. Display only; never used for decisions; no trading client."""
+        if tf not in LIVE_TIMEFRAMES:
+            raise HTTPException(400, "bad timeframe")
+        now = now_utc()
+        try:
+            data = st.live.candles("SPY", tf, now)
+        except LiveDataError as e:
+            return {"available": False, "reason": str(e), "market": _market(st.cal, now)}
+        return {"available": True, **data, "market": _market(st.cal, now)}
+
+    @app.get("/api/news")
+    def news(_=Depends(require_session)):
+        """Latest SPY/market headlines. Display only; never used for decisions."""
+        try:
+            return {"available": True, **st.live.news("SPY", 30)}
+        except LiveDataError as e:
+            return {"available": False, "reason": str(e), "items": []}
+
+    def _latest_closes(s) -> dict:
+        ds = s.scalar(select(Dataset).where(Dataset.mode == "ALPACA").order_by(Dataset.id.desc()))
+        return {b.day: b.close for b in _series_from_dataset(ds).bars} if ds else {}
+
+    def ser_forecast(f: Forecast) -> dict:
+        return {"id": f.id, "target_session": f.target_session.isoformat(), "base_session": f.base_session.isoformat(),
+                "direction": f.direction, "confidence": f.confidence, "reason": f.reason, "created_at": _times(f.created_at),
+                "base_close": str(f.base_close) if f.base_close is not None else None,
+                "outcome_close": str(f.outcome_close) if f.outcome_close is not None else None,
+                "outcome": f.outcome, "correct": f.correct}
+
+    @app.get("/api/forecasts")
+    def forecasts(_=Depends(require_session), s=Depends(S)):
+        now = now_utc()
+        rows = list(s.scalars(select(Forecast).order_by(Forecast.target_session.desc())))
+        if any(f.outcome is None for f in rows):
+            fc.score_pending(rows, _latest_closes(s), now)
+        target, base = fc.target_for(st.cal, now)
+        current = next((f for f in rows if f.target_session == target.day), None)
+        return {"next": {"target_session": target.day.isoformat(), "base_session": base.day.isoformat(),
+                         "deadline": _times(target.open_utc), "already_made": ser_forecast(current) if current else None},
+                "items": [ser_forecast(f) for f in rows[:200]], "score": fc.scorecard(rows),
+                "rules": ["Make your call before the target session opens (18:30 Dubai in winter, 17:30 in summer). Later calls are refused, so there is no hindsight.",
+                          "One call per session. UP means the session will close higher than the previous session's close.",
+                          "Scoring uses Orbit's stored Alpaca daily closes, after the worker records that session.",
+                          "Your hit rate is compared with simply saying 'UP' every day, which is right more often than not in a rising market.",
+                          "Learning only: forecasts never affect trading."]}
+
+    @app.post("/api/forecasts")
+    def forecast_add(body: ForecastBody, _=Depends(require_session), s=Depends(S)):
+        now = now_utc()
+        target, base = fc.target_for(st.cal, now)
+        if now >= target.open_utc:
+            raise HTTPException(409, "That session has already opened; forecasts must be made before the open.")
+        if s.scalar(select(Forecast.id).where(Forecast.target_session == target.day)):
+            raise HTTPException(409, f"You already made a call for {target.day.isoformat()}. One per session, and it cannot be changed.")
+        f = Forecast(symbol="SPY", target_session=target.day, base_session=base.day, direction=body.direction,
+                     confidence=body.confidence, reason=body.reason.strip(), created_at=now)
+        s.add(f)
+        s.flush()
+        audit(s, "user", "forecast_recorded", {"id": f.id, "target_session": target.day.isoformat(), "direction": body.direction})
+        return ser_forecast(f)
 
     @app.get("/api/strategy")
     def strategy(_=Depends(require_session), s=Depends(S)):
