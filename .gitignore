@@ -1,13 +1,16 @@
+# Secrets and local state (anchored to the repo root so code folders named "data" are NOT ignored)
 .env
-data/
+/data/
+/data-mock-demo/
+/server-backups/
 *.sqlite3
 *.sqlite3-*
+*.log
+
+# Build / dependency output
 backend/.venv/
 **/__pycache__/
 .pytest_cache/
 frontend/node_modules/
 frontend/dist/
-*.log
-data-mock-demo/
-server-backups/
 *.tsbuildinfo
