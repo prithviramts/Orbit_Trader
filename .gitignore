@@ -10,3 +10,4 @@ frontend/dist/
 *.log
 data-mock-demo/
 server-backups/
+*.tsbuildinfo
