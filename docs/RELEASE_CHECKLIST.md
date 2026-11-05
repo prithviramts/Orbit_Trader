@@ -9,8 +9,8 @@ against a real Alpaca paper account.
 | M1 Local login, shell, SAMPLE mode, USD/AED display | Test passed + Inspected | api tests; browser on 127.0.0.1:8765 |
 | M1 Strategy, recovery state tests, accounting fixture | Test passed | 110 pytest tests pass (`scripts\test.ps1`) |
 | M1 Backtests, both benchmarks, charts, guided explanations | Test passed + Inspected | SAMPLE run #1 rendered; replay predict/reveal works |
-| M1 Real historical data | **Blocked** | Needs your Alpaca keys (Research → Fetch SPY history) or a documented CSV |
-| M2 Broker observation (read-only) | Implemented, mocked | **Blocked** for real account until you add keys and run the connection test |
+| M1 Real historical data | Externally verified | Alpaca IEX SPY daily bars 2018-11-01 → 2026-11-04; gap-free from 2020-07-27 |
+| M2 Broker observation (read-only) | Externally verified (read path) | Read-only check on owner paper account 2026-11-05: all checks OK, 0 orders. Worker observation over a real session still pending |
 | M3 Scheduling, lifecycle, limits, drawdown, security pauses, recovery | Test passed | timeout/restart/partial/residual/missed/conflict scenarios via `Engine.tick` |
 | M3 Decision→order→fill UI | Inspected (MOCK) | `scripts\mock-demo.ps1` lifecycle viewed in browser |
 | M3 Supervised paper order at Alpaca | **Blocked** | Requires your explicit activation |

@@ -88,11 +88,16 @@ class AlpacaPaperAdapter(BrokerAdapter):
         secret = settings.alpaca_api_secret_key.get_secret_value()
         self.settings = settings
         self.read_client = TradingClient(key, secret, paper=True)
-        self.order_client = TradingClient(key, secret, paper=True, retry_exception_codes=[599])
+        self.order_client = TradingClient(key, secret, paper=True)
+        # TradingClient does not expose retry settings; clear the retryable status codes so a 429 on
+        # order submission is surfaced (and reconciled) instead of being silently re-POSTed by the SDK.
+        self.order_client._retry_codes = []
         self.data_client = StockHistoricalDataClient(key, secret)
         for c in (self.read_client, self.order_client, self.data_client):
             _with_timeout(c._session)
-            if "paper-api.alpaca.markets" not in str(getattr(c, "_base_url", "paper-api.alpaca.markets")) and c is not self.data_client:
+        for c in (self.read_client, self.order_client):
+            url = getattr(c._base_url, "value", c._base_url)  # the SDK stores a BaseURL enum
+            if str(url).rstrip("/") != "https://paper-api.alpaca.markets":
                 raise BrokerError("SDK base URL is not the paper endpoint; refusing")
 
     # ------------------------------------------------------------ error mapping

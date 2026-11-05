@@ -7,13 +7,23 @@
 | Order statuses | new, partially_filled, filled, done_for_day, canceled, expired, replaced, pending_cancel, pending_replace, accepted, pending_new, accepted_for_bidding, stopped, rejected, suspended, calculated. | Terminal: filled, canceled, expired, rejected, replaced. Everything else is "still working". | Documented ✔ |
 | Fractional / notional | Fractional orders: DAY time-in-force only (market/limit/stop/stop-limit). Notional orders cannot be replaced (cancel + new). | Buys are DAY market **notional**; sells are DAY market **qty** (fractional, floored to 9 dp). No replaces. Asset `fractionable` checked before each order. | Documented ✔; minimum notional **not stated** in the docs reviewed (Orbit uses USD 1 and flags a rejection if the broker disagrees) |
 | client_order_id | Client-supplied unique id; lookup by `/orders:by_client_order_id`. Maximum length **not stated** in the pages reviewed. | Ids are ≤ 40 chars and deterministic per intent identity. A not-found right after a timeout is never treated as proof of absence. | Partially verified ⚠ |
-| Market data | Basic (free): IEX only, history since 2016, latest-15-minute limitation on historical requests, 200 calls/min. Adjustment enum: raw/split/dividend/all (SDK). | Default feed IEX, `adjustment=split`, price-only (dividends excluded). Bars filtered to completed sessions + 15 min. IEX closes may differ from the consolidated close (labelled). | Documented ✔; actual entitlement **unverified** (no credentials in this session) |
+| Market data | Basic (free): IEX only, history since 2016, latest-15-minute limitation on historical requests, 200 calls/min. Adjustment enum: raw/split/dividend/all (SDK). | Default feed IEX, `adjustment=split`, price-only (dividends excluded). Bars filtered to completed sessions + 15 min. IEX closes may differ from the consolidated close (labelled). | **Externally verified 2026-11-05** on the owner's paper account: IEX daily SPY bars returned from 2018-11-01, with 433 missing sessions 2018-11 → 2020-07-24 and complete data from 2020-07-27. Docs said "since 2016"; the account received less. |
 | Exchange calendar | NYSE hours/holidays; Alpaca `/v2/calendar` and `/v2/clock`. | Offline XNYS schedule from `exchange_calendars` for scheduling; broker clock must say `is_open` before any submission. Early close 2026-11-27 and DST shifts tested. | Tested offline ✔; broker clock **unverified live** |
 | ntfy | POST body to `<server>/<topic>`; headers Title, Priority (1–5), Tags, Click; auth `Authorization: Bearer tk_…`; topics on ntfy.sh are effectively public; iOS needs the upstream relay for self-hosted servers (otherwise delayed); Android instant delivery option. | Adapter posts redacted summaries; Bearer token optional; https only; no redirects followed. | Documented ✔; phone receipt **unverified** (owner must confirm) |
 | OWASP REST / LLM prompt injection | Auth on every endpoint, CSRF for cookie auth, input validation, security headers; untrusted text never gains privileges. | Implemented as described in OPERATIONS_SECURITY.md; hostile-news test. | Implemented, self-tested only |
 | USD/AED | AED pegged at 3.6725 per USD (CBUAE reference). | `USD_TO_AED=3.6725`, labelled "reference, not a bank conversion"; stored in every backtest config. | ✔ |
 
+## Owner paper account check (2026-11-05, read-only, 0 orders)
+Account ACTIVE, cash/equity USD 100,000 (paper default), buying power USD 400,000 (4× margin, never used by Orbit),
+shorting enabled at account level (never used), no positions, no open orders, no orders in 30 days, SPY tradable and
+fractionable, clock reachable, cash-activity endpoint readable.
+
+Two adapter bugs were found only against the real SDK and fixed with offline construction tests
+(`tests/test_alpaca_adapter.py`): `TradingClient` does not accept retry settings, and its base URL is an enum.
+
 ## Material limitations recorded
+- Usable gap-free Alpaca IEX history starts 2020-07-27, so the first valid 200-session decision is in May 2021.
+  Backtests now skip any decision whose window contains a missing session (same rule as live).
 - Paper fills ≠ live fills; backtest opens ≠ paper fills (both labelled).
 - IEX daily bars ≠ consolidated official closes. Older-than-2016 history is not available on the free feed;
   use a documented CSV import if needed. Orbit never invents history.

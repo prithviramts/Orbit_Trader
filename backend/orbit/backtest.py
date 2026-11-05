@@ -158,7 +158,8 @@ def run_backtest(
         sig_bars = raw
         splits_by_day = {}
     closes_all = [(b.day, b.close) for b in sig_bars]
-    idx_of = {b.day: i for i, b in enumerate(raw)}
+    sess_index = {x.day: k for k, x in enumerate(cal.sessions)}
+    gap_skips = 0
 
     # Evaluation starts at the first session with a full window that is >= start.
     first_eval = params.sma_window - 1
@@ -219,8 +220,15 @@ def run_backtest(
             pf.exposure.append(pf.ledger.market_value(bar.close) / e if e > 0 else Decimal(0))
         for ev in update_drawdown(dd, strat.equity[-1][1], risk):
             risk_events.append({"day": day.isoformat(), "event": ev, "drawdown": str(dd.drawdown), "high_water_mark": str(dd.high_water_mark)})
-        # 4) evaluate the rule with data up to and including today's close only
+        # 4) evaluate the rule with data up to and including today's close only.
+        #    Same data rule as live: a 200-session window containing a missing session is not used.
+        first_day = raw[i - params.sma_window + 1].day if i >= params.sma_window - 1 else None
+        gapped = (first_day is not None and day in sess_index and first_day in sess_index
+                  and sess_index[day] - sess_index[first_day] != params.sma_window - 1)
         sig = evaluate_signal(closes_all[: i + 1], day, target_state, params.sma_window)
+        if gapped:
+            gap_skips += 1
+            sig = type(sig)(sig.session, sig.close, None, sig.window_count, sig.previous_target, INSUFFICIENT, "N/A")
         held = strat.ledger.qty
         ref = f"bt-{day.isoformat()}"
         dec = {"ref": ref, "session": day.isoformat(), "close": str(sig.close) if sig.close is not None else None,
@@ -229,7 +237,8 @@ def run_backtest(
                "equity": str(strat.equity[-1][1]), "cash": str(strat.ledger.cash),
                "drawdown": str(dd.drawdown), "entries_paused": dd.entries_paused}
         if sig.target == INSUFFICIENT:
-            dec.update(action="SKIP", reason="Insufficient completed closes for the 200-session average.")
+            dec.update(action="SKIP", reason=("Missing session(s) inside the 200-session window; no signal (same rule as live)."
+                                              if gapped else "Insufficient completed closes for the 200-session average."))
         else:
             target_state = sig.target
             if i == last:
@@ -276,7 +285,9 @@ def run_backtest(
             "Missing sessions are not filled; an execution falling on a gap is recorded as MISSED_EXECUTION and re-assessed at the next decision.",
             "Matched-entry benchmark matches the initial allocation only, not exposure over time.",
             f"Price basis: {series.price_basis}; splits applied to simulated quantities when basis is raw.",
+            f"Data gaps: {gap_skips} decision(s) skipped because their 200-session window contained a missing session.",
         ],
+        "gap_skipped_decisions": gap_skips,
         "decisions": decisions,
         "risk_events": risk_events,
         "portfolios": {},

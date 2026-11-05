@@ -35,7 +35,7 @@ Evidence types: **T** = automated test (file::name), **UI** = screen inspected i
 | UI: login, overview, SAMPLE replay + benchmarks, Learn predict/reveal, pause + surviving positions, decision → order → fill timeline (MOCK), phone width | UI inspected (in-app browser) | Inspected manually; **no automated browser test suite** ⚠ |
 | Graceful worker stop + lease release | Manual run 2026-11-05: stop flag → "Worker stopped cleanly", lease status `stopped` | Verified manually |
 | Backup / restore drill | `orbit.cli restore-drill` (see RELEASE_CHECKLIST) | Verified on demo DB |
-| Alpaca read path (account, positions, orders, asset, clock, bars) | Code + mocks only | **Blocked: no credentials in this session** |
+| Alpaca read path (account, positions, orders, asset, clock, bars) | Read-only check on the owner paper account 2026-11-05; tests/test_alpaca_adapter.py | Externally verified (read path) |
 | Supervised paper order at Alpaca | Mocks only | **Blocked: requires owner activation** |
 | ntfy phone receipt | Adapter + failure tests | **Blocked: owner must configure and confirm** |
 | Container build / Linux run | Files written | **Blocked: Docker not installed here** |

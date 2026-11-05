@@ -286,3 +286,20 @@ def test_sample_series_is_labelled_and_deterministic():
     a, b = generate_sample_series(), generate_sample_series()
     assert a.mode == "SAMPLE" and "NOT real" in a.source
     assert a.fingerprint() == b.fingerprint()
+
+
+def test_backtest_skips_gapped_windows_like_live():
+    """A missing session inside the window must block the signal in backtests too (consistency with live)."""
+    s = _series([100] * 199 + [101] * 260)
+    gap_day = s.bars[150].day
+    del s.bars[150]  # one missing session inside the early windows
+    res = run_backtest(s, costs=CostModel(Decimal(0), Decimal(0)))
+    gapped = [d for d in res["decisions"] if "Missing session" in d.get("reason", "")]
+    assert gapped and res["gap_skipped_decisions"] == len(gapped)
+    first_ok = next(d for d in res["decisions"] if d["action"] != "SKIP")
+    cal = xnys_calendar()
+    sess = [x.day for x in cal.sessions]
+    # the first usable window must start after the missing day
+    window_start = sess[sess.index(date.fromisoformat(first_ok["session"])) - 199]
+    assert window_start > gap_day
+    assert all(date.fromisoformat(d["session"]) < date.fromisoformat(first_ok["session"]) for d in gapped)
