@@ -1,0 +1,210 @@
+import React, { useEffect, useState } from "react";
+import { createRoot } from "react-dom/client";
+import { BrowserRouter, NavLink, Route, Routes, useNavigate } from "react-router-dom";
+import { get, post, setCsrf } from "./api";
+import { Badge, ErrorNote, ModeBadge, usePoll } from "./components";
+import { Overview } from "./pages/Overview";
+import { Market } from "./pages/Market";
+import { DecisionDetail, Decisions, Orders } from "./pages/Decisions";
+import { Research } from "./pages/Research";
+import { Learn } from "./pages/Learn";
+import { Journal } from "./pages/Journal";
+import { Operations, Security, Setup } from "./pages/Ops";
+import "./styles.css";
+
+function getTheme(): string {
+  try {
+    return localStorage.getItem("orbit-theme") || "dark"; // per-viewer convenience only
+  } catch {
+    return "dark";
+  }
+}
+
+function Wordmark() {
+  return (
+    <div className="brand">
+      <svg className="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+        <circle cx="16" cy="16" r="5.5" fill="var(--accent)" />
+        <ellipse cx="16" cy="16" rx="14" ry="6" fill="none" stroke="var(--accent-2)" strokeWidth="1.8" transform="rotate(-20 16 16)" />
+      </svg>
+      <div>
+        <div className="brand-name">Orbit Trading Lab</div>
+        <div className="brand-sub">Paper research console</div>
+      </div>
+    </div>
+  );
+}
+
+function Login({ onDone }: { onDone: () => void }) {
+  const [pw, setPw] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+  const status = usePoll<any>("/api/auth/status", 0);
+  return (
+    <div className="login card">
+      <Wordmark />
+      <h1>Sign in</h1>
+      {status.data && !status.data.password_set ? (
+        <div className="banner warn">
+          <span aria-hidden="true">!</span>
+          <div>
+            No password is set yet. In PowerShell, from the project folder, run <code>.\scripts\set-password.ps1</code>. The password is typed into
+            a hidden prompt and stored only as an Argon2 hash. There is no default password.
+          </div>
+        </div>
+      ) : null}
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setErr(null);
+          try {
+            const r = await post<any>("/api/auth/login", { password: pw });
+            setCsrf(r.csrf_token);
+            setPw("");
+            onDone();
+          } catch (e: any) {
+            setErr(e.message);
+          }
+        }}
+      >
+        <div className="field">
+          <label htmlFor="pw">Dashboard password</label>
+          <input id="pw" type="password" autoComplete="current-password" style={{ width: "100%" }} value={pw} onChange={(e) => setPw(e.target.value)} />
+        </div>
+        <ErrorNote error={err} />
+        <button className="primary" type="submit" disabled={!pw}>Sign in</button>
+      </form>
+      <p className="muted small" style={{ marginTop: "1rem" }}>
+        Local single-user app on 127.0.0.1. Paper trading only — there is no live-money route.
+      </p>
+    </div>
+  );
+}
+
+function TopBar({ theme, setTheme, onLogout }: { theme: string; setTheme: (t: string) => void; onLogout: () => void }) {
+  const ov = usePoll<any>("/api/overview", 15000);
+  const o = ov.data;
+  return (
+    <div className="topbar" role="status" aria-live="polite">
+      <Badge kind="accent" icon="◎">PAPER</Badge>
+      {o && <ModeBadge mode={o.mode} />}
+      {o?.flags.security_paused && <Badge kind="bad" icon="⛔">SECURITY PAUSED</Badge>}
+      {o?.flags.risk_paused_entries && <Badge kind="warn" icon="⏸">ENTRIES PAUSED (RISK)</Badge>}
+      {o?.flags.new_orders_paused && <Badge kind="warn" icon="⏸">NEW ORDERS PAUSED</Badge>}
+      {o?.flags.review_required && <Badge kind="bad" icon="!">REVIEW REQUIRED</Badge>}
+      {o && (
+        <Badge kind={o.worker.state === "RUNNING" ? "ok" : "bad"} icon={o.worker.state === "RUNNING" ? "●" : "○"} title={o.worker.text}>
+          Worker {o.worker.state.replaceAll("_", " ").toLowerCase()}
+        </Badge>
+      )}
+      {o && (
+        <Badge kind={o.market.is_open_by_calendar ? "ok" : ""} icon={o.market.is_open_by_calendar ? "◷" : "☾"}>
+          Market {o.market.is_open_by_calendar ? "open" : "closed"} (calendar)
+        </Badge>
+      )}
+      <span className="spacer" />
+      <button onClick={() => setTheme(theme === "dark" ? "light" : "dark")} aria-label="Toggle light/dark theme">
+        {theme === "dark" ? "☀ Light" : "☾ Dark"}
+      </button>
+      <button onClick={onLogout}>Sign out</button>
+    </div>
+  );
+}
+
+function App() {
+  const [auth, setAuth] = useState<"unknown" | "in" | "out">("unknown");
+  const [theme, setThemeState] = useState(getTheme());
+  const setTheme = (t: string) => {
+    setThemeState(t);
+    try {
+      localStorage.setItem("orbit-theme", t);
+    } catch {
+      /* storage may be blocked; theme still applies for this view */
+    }
+  };
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
+  const check = async () => {
+    try {
+      const s = await get<any>("/api/auth/status");
+      setCsrf(s.csrf_token);
+      setAuth(s.authenticated ? "in" : "out");
+    } catch {
+      setAuth("out");
+    }
+  };
+  useEffect(() => {
+    check();
+    const h = () => setAuth("out");
+    window.addEventListener("orbit:unauthorized", h);
+    return () => window.removeEventListener("orbit:unauthorized", h);
+  }, []);
+  if (auth === "unknown") return <p className="muted" style={{ padding: "2rem" }}>Loading…</p>;
+  if (auth === "out") return <Login onDone={check} />;
+  const links: [string, string, string][] = [
+    ["/", "◉", "Overview"], ["/setup", "✚", "Setup"], ["/market", "↗", "Market & strategy"], ["/decisions", "☰", "Decisions"],
+    ["/orders", "⇄", "Orders & positions"], ["/research", "∑", "Research"], ["/learn", "✎", "Learn"], ["/journal", "✍", "Journal & costs"],
+    ["/ops", "⚙", "Operations"], ["/security", "⛨", "Security"],
+  ];
+  return (
+    <BrowserRouter>
+      <div className="shell">
+        <aside className="sidebar">
+          <Wordmark />
+          <nav className="nav" aria-label="Main">
+            {links.map(([to, icon, label]) => (
+              <NavLink key={to} to={to} end={to === "/"}>
+                <span aria-hidden="true">{icon}</span>
+                {label}
+              </NavLink>
+            ))}
+          </nav>
+        </aside>
+        <main className="main">
+          <TopBar
+            theme={theme}
+            setTheme={setTheme}
+            onLogout={async () => {
+              try {
+                await post("/api/auth/logout");
+              } finally {
+                setCsrf(null);
+                setAuth("out");
+              }
+            }}
+          />
+          <Routes>
+            <Route path="/" element={<Overview />} />
+            <Route path="/setup" element={<Setup />} />
+            <Route path="/market" element={<Market />} />
+            <Route path="/decisions" element={<Decisions />} />
+            <Route path="/decisions/:id" element={<DecisionDetail />} />
+            <Route path="/orders" element={<Orders />} />
+            <Route path="/research" element={<Research />} />
+            <Route path="/learn" element={<Learn />} />
+            <Route path="/journal" element={<Journal />} />
+            <Route path="/ops" element={<Operations />} />
+            <Route path="/security" element={<Security />} />
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </main>
+      </div>
+    </BrowserRouter>
+  );
+}
+
+function NotFound() {
+  const nav = useNavigate();
+  return (
+    <div className="card">
+      <h2>Page not found</h2>
+      <button onClick={() => nav("/")}>Go to overview</button>
+    </div>
+  );
+}
+
+createRoot(document.getElementById("root")!).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);

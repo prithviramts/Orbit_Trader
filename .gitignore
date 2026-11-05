@@ -1,0 +1,11 @@
+.env
+data/
+*.sqlite3
+*.sqlite3-*
+backend/.venv/
+**/__pycache__/
+.pytest_cache/
+frontend/node_modules/
+frontend/dist/
+*.log
+data-mock-demo/

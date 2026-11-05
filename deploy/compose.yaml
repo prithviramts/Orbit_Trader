@@ -1,0 +1,36 @@
+# Private Linux server layout (not provisioned). Exactly ONE worker replica: the DB lease and file lock
+# also refuse a second worker, but do not scale it. The API listens only on the host loopback; reach it
+# through an authenticated private tunnel/VPN or an HTTPS reverse proxy (see docs/DEPLOYMENT.md).
+services:
+  worker:
+    image: orbit-trading-lab
+    command: ["uv", "run", "--frozen", "--no-dev", "python", "-m", "orbit.worker"]
+    env_file: [/etc/orbit/orbit.env]       # chmod 600, owned by root; never committed
+    volumes: [orbit-data:/data]
+    restart: unless-stopped
+    stop_grace_period: 45s                 # SIGTERM -> worker finishes its cycle and releases its lease
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    deploy: { resources: { limits: { cpus: "0.50", memory: 512M } } }
+  api:
+    image: orbit-trading-lab
+    env_file: [/etc/orbit/orbit.env]
+    environment:
+      ORBIT_BIND_HOST: 0.0.0.0              # inside the container only; published on host loopback below
+      ORBIT_DEPLOYMENT_MODE: remote
+      # ORBIT_PUBLIC_ORIGIN: https://orbit.your-private-domain   # required, must be https
+    ports: ["127.0.0.1:8765:8765"]
+    volumes: [orbit-data:/data]
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8765/api/health')"]
+      interval: 60s
+    deploy: { resources: { limits: { cpus: "1.0", memory: 768M } } }
+volumes:
+  orbit-data: {}
