@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { LivePanel } from "../live";
-import { useSpyQuote } from "../ticker";
+import { useQuote } from "../ticker";
 import { Badge, DubaiTime, ErrorNote, Loading, Money, pct, StateBadge, usePoll } from "../components";
 
 export function Overview() {
@@ -57,13 +57,14 @@ export function Overview() {
           {o.account && <div className="muted small" title={o.account.buying_power_note}>Buying power <Money v={o.account.buying_power} /> (may include margin; never used)</div>}
         </div>
         <div className="card tight">
-          <div className="kpi-label">Strategy holding</div>
+          <div className="kpi-label">SPY rule holding</div>
           <div className="kpi-value num" title={o.strategy_position ? `${o.strategy_position.held_qty} SPY exactly` : undefined}>
             {o.strategy_position ? `${Number(o.strategy_position.held_qty).toFixed(4)} SPY` : "—"}
           </div>
-          <HoldingValue qty={o.strategy_position?.held_qty} cost={o.strategy_position?.cost_basis?.usd} />
+          <HoldingValue symbol="SPY" qty={o.strategy_position?.held_qty} cost={o.strategy_position?.cost_basis?.usd} />
           <div className="muted small">Signal target: {o.strategy_position?.signal_target ?? "—"}</div>
         </div>
+        <GoldCard g={o.gold} />
       </div>
 
       <div style={{ marginTop: "1rem" }}>
@@ -86,6 +87,18 @@ export function Overview() {
           ) : (
             <p className="muted">No decision yet. The worker evaluates 15 minutes after each completed session once the paper account is connected.</p>
           )}
+          <h3 style={{ marginTop: "1rem" }}>Gold AI</h3>
+          {o.gold?.latest ? (
+            <>
+              <div className="row">
+                <StateBadge state={o.gold.latest.action} />
+                {o.gold.latest.probability != null && <Badge kind="">{Math.round(o.gold.latest.probability * 100)}% chance up</Badge>}
+                <span className="muted">Session {o.gold.latest.session}</span>
+              </div>
+              <p className="small">{o.gold.latest.reason}</p>
+              <Link to="/gold">See the signals →</Link>
+            </>
+          ) : <p className="muted small">No gold decision yet.</p>}
         </div>
         <div className="card">
           <h2>Next action</h2>
@@ -93,7 +106,7 @@ export function Overview() {
             <tbody>
               <tr><th scope="row">Next evaluation</th><td><DubaiTime t={o.market.next_evaluation} withNy /></td></tr>
               <tr><th scope="row">Next session open</th><td>{o.market.next ? <>{new Date(o.market.next.open_utc).toLocaleString("en-GB", { timeZone: "Asia/Dubai", weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })} Dubai{o.market.next.early_close && <Badge kind="warn">early close</Badge>}</> : "—"}</td></tr>
-              <tr><th scope="row">Pending order</th><td>{nextExec ? <>{nextExec.side} for {nextExec.execution_session} open {nextExec.frozen_notional_money && <Money v={nextExec.frozen_notional_money} />}</> : <span className="muted">None</span>}</td></tr>
+              <tr><th scope="row">Pending order</th><td>{nextExec ? <>{nextExec.symbol ?? "SPY"} {nextExec.side} for {nextExec.execution_session} open {nextExec.frozen_notional_money && <Money v={nextExec.frozen_notional_money} />}</> : <span className="muted">None</span>}</td></tr>
               <tr><th scope="row">Pending buy notional</th><td><Money v={o.pending_buy_notional} /></td></tr>
               <tr><th scope="row">Reconciliation</th><td>{o.reconciliation ? (o.reconciliation.ok ? <Badge kind="ok" icon="✔">clean</Badge> : <Badge kind="bad" icon="✖">discrepancies</Badge>) : <span className="muted">not yet run</span>} {o.reconciliation && <DubaiTime t={o.reconciliation.at} />}</td></tr>
               <tr><th scope="row">Worker heartbeat</th><td>{o.worker.text} {o.worker.heartbeat && <DubaiTime t={o.worker.heartbeat} />}</td></tr>
@@ -147,9 +160,28 @@ export function Overview() {
   );
 }
 
-/** Live value of the strategy's SPY and its unrealised profit/loss vs what was paid (display only, IEX price). */
-function HoldingValue({ qty, cost }: { qty?: string; cost?: string }) {
-  const q = useSpyQuote();
+/** Gold AI at a glance: on/shadow, holding, live value, latest call. */
+function GoldCard({ g }: { g: any }) {
+  if (!g) return null;
+  const held = Number(g.held_qty || 0);
+  const L = g.latest;
+  return (
+    <div className="card tight">
+      <div className="kpi-label"><Link to="/gold">Gold AI holding</Link></div>
+      <div className="kpi-value num">{held > 0 ? `${held.toFixed(4)} GLD` : "No gold"}</div>
+      {held > 0 && <HoldingValue symbol="GLD" qty={g.held_qty} cost={g.cost_basis?.usd} />}
+      <div className="muted small">
+        {g.settings.enabled ? "AI trading on" : "Shadow mode"} · USD {Number(g.settings.budget_usd).toFixed(0)} per buy
+        {L?.probability != null && <> · last call {Math.round(L.probability * 100)}% up ({L.action})</>}
+      </div>
+      {g.pending && <div className="small">Order waiting: {g.pending.side} at {g.pending.execution_session} open</div>}
+    </div>
+  );
+}
+
+/** Live value of a strategy holding and its unrealised profit/loss vs what was paid (display only, IEX price). */
+function HoldingValue({ symbol, qty, cost }: { symbol: string; qty?: string; cost?: string }) {
+  const q = useQuote(symbol);
   const n = Number(qty || 0);
   if (!q || !n || !cost) return null;
   const value = n * q.price;

@@ -4,10 +4,16 @@ import { nyDay } from "./time";
 
 type Candle = { t: number; c: number };
 
-/** Latest SPY price and change vs the previous session's close, from the daily feed. */
-export function useSpyQuote() {
-  const { data } = usePoll<any>("/api/market/live?tf=1Day", 30000);
+export const liveUrl = (tf: string, symbol = "SPY") => `/api/market/live?tf=${tf}${symbol === "SPY" ? "" : `&symbol=${symbol}`}`;
+
+/** Latest price and change vs the previous session's close, from the daily feed (SPY or GLD). */
+export function useQuote(symbol = "SPY") {
+  const { data } = usePoll<any>(liveUrl("1Day", symbol), 30000);
   return useMemo(() => quoteFrom(data), [data]);
+}
+
+export function useSpyQuote() {
+  return useQuote("SPY");
 }
 
 export function quoteFrom(d: any) {
@@ -33,11 +39,20 @@ export function Change({ change, pct }: { change: number; pct: number }) {
 }
 
 export function TickerChip() {
-  const q = useSpyQuote();
+  return (
+    <>
+      <OneChip symbol="SPY" />
+      <OneChip symbol="GLD" />
+    </>
+  );
+}
+
+function OneChip({ symbol }: { symbol: string }) {
+  const q = useQuote(symbol);
   if (!q) return null;
   return (
-    <span className="ticker" title="SPY latest trade (IEX feed) vs previous close. Display only.">
-      <strong>SPY</strong> <span className="num">{q.price.toFixed(2)}</span> <Change change={q.change} pct={q.pct} />
+    <span className="ticker" title={`${symbol} latest trade (IEX feed) vs previous close. Display only.`}>
+      <strong>{symbol}</strong> <span className="num">{q.price.toFixed(2)}</span> <Change change={q.change} pct={q.pct} />
     </span>
   );
 }

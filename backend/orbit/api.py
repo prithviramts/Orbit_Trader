@@ -346,6 +346,20 @@ def _market(cal, now):
             "next_evaluation": _times((cur or nxt).close_utc + timedelta(minutes=15)) if (cur or nxt) else None}
 
 
+def _gold_summary(s, akey) -> dict:
+    """Compact Gold AI status for the Overview page."""
+    from orbit import gold_engine
+    pos = s.scalar(select(StrategyPosition).where(StrategyPosition.account_key == akey, StrategyPosition.symbol == "GLD")) if akey else None
+    d = s.scalar(select(Decision).where(Decision.symbol == "GLD").order_by(Decision.session.desc(), Decision.sequence.desc()))
+    pending = s.scalar(select(OrderIntent).where(OrderIntent.symbol == "GLD", OrderIntent.state.in_(OPEN_INTENT_STATES)).order_by(OrderIntent.id))
+    return {"settings": gold_engine.get_settings(s),
+            "held_qty": str(pos.held_qty) if pos else "0", "cost_basis": mp(pos.cost_basis) if pos else None,
+            "latest": None if not d else {"id": d.id, "session": d.session.isoformat(), "action": d.action, "target": d.target,
+                                          "probability": (d.inputs or {}).get("probability"), "would_action": (d.inputs or {}).get("would_action"),
+                                          "reason": d.reason},
+            "pending": ser_intent(pending) if pending else None}
+
+
 def _routes(app: FastAPI):
     st = app.state
 
@@ -440,19 +454,24 @@ def _routes(app: FastAPI):
                          "warn": str(risk.warn_fraction), "pause": str(risk.pause_fraction),
                          "note": "Thresholds trigger reviews; they are not loss limits. With ~25% exposure, a 10% account drawdown needs roughly a 40% SPY fall, so they may rarely trigger."},
             "fx": fx_assumption(),
+            "gold": _gold_summary(s, c.account_fingerprint),
             "health_vs_profit": "Healthy software (green status) and a profitable strategy are separate measures. Check both.",
         }
 
     # -------------------------------------------------------------- market & strategy
     @app.get("/api/market/chart")
-    def chart(source: str = "auto", _=Depends(require_session), s=Depends(S)):
+    def chart(source: str = "auto", symbol: str = "SPY", _=Depends(require_session), s=Depends(S)):
+        if symbol not in ("SPY", "GLD"):
+            raise HTTPException(400, "bad symbol")
         if source == "auto":
-            ds = s.scalar(select(Dataset).where(Dataset.mode == "ALPACA").order_by(Dataset.id.desc())) or \
-                s.scalar(select(Dataset).order_by(Dataset.id.desc()))
+            ds = s.scalar(select(Dataset).where(Dataset.mode == "ALPACA", Dataset.symbol == symbol).order_by(Dataset.id.desc())) or \
+                (s.scalar(select(Dataset).where(Dataset.symbol == symbol).order_by(Dataset.id.desc())) if symbol == "SPY" else None)
         elif source.startswith("dataset:") and source[8:].isdigit():
             ds = s.get(Dataset, int(source[8:]))
         else:
             raise HTTPException(400, "bad source")
+        if not ds and symbol == "GLD":
+            return {"available": False, "reason": "No gold price data stored yet. It appears after the gold AI's first evaluation."}
         if not ds:
             return {"available": False, "reason": "No price data stored yet. Create a SAMPLE dataset on the Research page, import a CSV, or connect Alpaca and let the worker evaluate."}
         series = _series_from_dataset(ds)
@@ -462,8 +481,8 @@ def _routes(app: FastAPI):
                  "sma200": str(sma[b.day]) if sma.get(b.day) is not None else None} for b in series.bars]
         decisions, fills = [], []
         if ds.mode == "ALPACA":
-            decisions = [ser_decision(d) for d in s.scalars(select(Decision).where(Decision.data_mode == "ALPACA", Decision.symbol == "SPY").order_by(Decision.session))]
-            fills = [ser_fill(f) for f in s.scalars(select(Fill).join(OrderIntent, Fill.intent_id == OrderIntent.id).where(OrderIntent.symbol == "SPY").order_by(Fill.at))]
+            decisions = [ser_decision(d) for d in s.scalars(select(Decision).where(Decision.data_mode == "ALPACA", Decision.symbol == ds.symbol).order_by(Decision.session))]
+            fills = [ser_fill(f) for f in s.scalars(select(Fill).join(OrderIntent, Fill.intent_id == OrderIntent.id).where(OrderIntent.symbol == ds.symbol).order_by(Fill.at))]
         quality = validate_bars(series.bars, st.cal)
         return {"available": True, "dataset": {"id": ds.id, **(ds.describe or {})}, "bars": bars, "decisions": decisions, "fills": fills,
                 "missing_sessions": quality["missing_sessions"][:200]}
@@ -543,13 +562,15 @@ def _routes(app: FastAPI):
         return out
 
     @app.get("/api/market/live")
-    def market_live(tf: str = "5Min", _=Depends(require_session)):
-        """Recent candles + latest trade for SPY. Display only; never used for decisions; no trading client."""
+    def market_live(tf: str = "5Min", symbol: str = "SPY", _=Depends(require_session)):
+        """Recent candles + latest trade for SPY or GLD. Display only; never used for decisions; no trading client."""
         if tf not in LIVE_TIMEFRAMES:
             raise HTTPException(400, "bad timeframe")
+        if symbol not in ("SPY", "GLD"):
+            raise HTTPException(400, "bad symbol")
         now = now_utc()
         try:
-            data = st.live.candles("SPY", tf, now)
+            data = st.live.candles(symbol, tf, now)
         except LiveDataError as e:
             return {"available": False, "reason": str(e), "market": _market(st.cal, now)}
         return {"available": True, **data, "market": _market(st.cal, now)}

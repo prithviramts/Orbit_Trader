@@ -168,3 +168,25 @@ def test_gold_api_and_settings_switch(tmp_path):
     assert ok.status_code == 200 and ok.json()["settings"]["enabled"] is True
     assert c.post("/api/gold/settings", json={"enabled": True, "budget_usd": "900"}, headers=H(csrf)).status_code == 422
     assert c.get("/api/performance?symbol=GLD").status_code == 200
+
+
+def test_overview_and_chart_include_gold(tmp_path):
+    from tests.test_api_security import login, ORIGIN, PW
+    from fastapi.testclient import TestClient
+    from orbit import auth
+    from orbit.api import create_app
+    from orbit.config import Settings
+    from orbit.db import Database, init_db
+    settings = Settings(_env_file=None, ORBIT_DATA_DIR=str(tmp_path))
+    db = Database(tmp_path / "api.sqlite3")
+    init_db(db.engine)
+    with db.session() as s:
+        auth.set_password(s, PW)
+    c = TestClient(create_app(settings, db), base_url=ORIGIN)
+    login(c)
+    ov = c.get("/api/overview").json()
+    assert ov["gold"]["settings"]["enabled"] is False and ov["gold"]["held_qty"] == "0" and ov["gold"]["latest"] is None
+    g = c.get("/api/market/chart?source=auto&symbol=GLD").json()
+    assert g["available"] is False and "gold" in g["reason"].lower()
+    assert c.get("/api/market/chart?symbol=BTC").status_code == 400
+    assert c.get("/api/market/live?tf=1Day&symbol=BTC").status_code == 400
