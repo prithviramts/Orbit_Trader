@@ -110,8 +110,11 @@ export function DecisionDetail() {
           {data.fills.length > 0 && (
             <>
               <h3>Fills</h3>
-              <table><thead><tr><th>Side</th><th>Qty</th><th>Price</th><th>Notional</th><th>Broker order</th></tr></thead>
-                <tbody>{data.fills.map((f: any) => <tr key={f.id}><td>{f.side}</td><td className="num">{Number(f.qty)}</td><td><Money v={f.price_money} /></td><td><Money v={f.notional_money} /></td><td className="mono small">{f.broker_order_id}</td></tr>)}</tbody></table>
+              <div className="table-wrap"><table><thead><tr><th>Side</th><th>Qty</th><th>Price</th><th>Value</th><th>Broker order</th></tr></thead>
+                <tbody>{data.fills.map((f: any) => <tr key={f.id}><td>{f.side}</td>
+                  <td className="num" title={`${f.qty} SPY exactly`}>{Number(f.qty).toFixed(4)}</td>
+                  <td><Money v={f.price_money} /></td><td><Money v={f.notional_money} /></td>
+                  <td className="mono small" title={f.broker_order_id}>{String(f.broker_order_id).slice(0, 8)}…</td></tr>)}</tbody></table></div>
             </>
           )}
         </div>

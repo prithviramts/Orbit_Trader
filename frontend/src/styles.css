@@ -112,9 +112,9 @@ code { background: var(--panel-2); border: 1px solid var(--line); border-radius:
 
 /* ---------- layout */
 .grid { display: grid; gap: 1rem; }
-.g2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.g2 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); } /* two columns only when each gets ~440px */
 .g3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.g4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.g4 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); } /* 4 cards on wide screens, 2 on medium */
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 1.05rem 1.15rem; min-width: 0; box-shadow: var(--shadow); }
 .card.tight { padding: .8rem .95rem; }
 .card h2 { display: flex; align-items: center; gap: .5rem; }
@@ -124,6 +124,9 @@ code { background: var(--panel-2); border: 1px solid var(--line); border-radius:
 .kpi-value .money { display: block; }
 .kpi-value .money .aed { display: block; margin-left: 0; font-size: .78rem; font-weight: 500; letter-spacing: 0; }
 .money .aed { color: var(--muted); font-size: .85em; margin-left: .35rem; white-space: nowrap; font-weight: 400; }
+/* In tables: "USD 765.82" stays on one line, AED goes neatly underneath */
+td .money { white-space: nowrap; }
+td .money .aed { display: block; margin-left: 0; font-size: .78rem; }
 .num { font-variant-numeric: tabular-nums; }
 
 /* ---------- badges + banners */
@@ -226,7 +229,10 @@ details[open] > summary { margin-bottom: .5rem; }
 .status-big { font-size: 1.5rem; font-weight: 700; margin-bottom: .4rem; }
 
 /* ---------- news & forecasts */
-.news-grid { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); align-items: start; }
+.news-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr)); align-items: start; }
+.card { overflow-x: auto; } /* safety net: any wide table scrolls inside its card, never the whole page */
+.news-grid > *, .grid > * { min-width: 0; } /* let wide tables scroll inside their card instead of widening the page */
+.card > .badge { white-space: normal; max-width: 100%; } /* long labels (e.g. the experimental warning) wrap on phones */
 .news-list { list-style: none; margin: 0; padding: 0; }
 .news-list li { padding: .7rem 0; border-bottom: 1px solid var(--line); }
 .news-list li:first-child { padding-top: 0; }
