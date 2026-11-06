@@ -28,11 +28,12 @@ export function Decisions() {
       ) : (
         <div className="card table-wrap">
           <table>
-            <thead><tr><th>Session</th><th>Action</th><th>Target</th><th>Close / avg (USD)</th><th>Mode</th><th>Reason</th></tr></thead>
+            <thead><tr><th>Session</th><th>Fund</th><th>Action</th><th>Target</th><th>Close / avg (USD)</th><th>Mode</th><th>Reason</th></tr></thead>
             <tbody>
               {data.items.map((d: any) => (
                 <tr key={d.id} className="clickable" onClick={() => nav(`/decisions/${d.id}`)}>
                   <td><Link to={`/decisions/${d.id}`}>{d.session}{d.sequence > 1 ? ` (#${d.sequence})` : ""}</Link></td>
+                  <td>{d.symbol === "GLD" ? <Link to="/gold">GLD (AI)</Link> : d.symbol}</td>
                   <td><StateBadge state={d.action} /></td>
                   <td>{d.target}</td>
                   <td className="num">{d.close ?? "—"} / {d.sma ? Number(d.sma).toFixed(2) : "—"}</td>
@@ -60,7 +61,7 @@ export function DecisionDetail() {
   return (
     <div>
       <p><Link to="/decisions">← All decisions</Link></p>
-      <h1>Decision for {d.session} <StateBadge state={d.action} /></h1>
+      <h1>{d.symbol === "GLD" ? "Gold AI decision" : "Decision"} for {d.session} <StateBadge state={d.action} /></h1>
       <div className="row" style={{ marginBottom: "1rem" }}>
         <Badge kind={d.data_mode === "SAMPLE" ? "sample" : "accent"}>{d.data_mode}</Badge>
         <Badge kind="">Strategy v{d.strategy_version_id}</Badge>
@@ -81,13 +82,13 @@ export function DecisionDetail() {
               <tr><th scope="row">Comparison</th><td>{d.comparison}</td></tr>
               <tr><th scope="row">Window</th><td>{d.window_count} closes{sig?.window_first_session ? ` from ${sig.window_first_session}` : ""}</td></tr>
               <tr><th scope="row">Previous → new target</th><td>{d.previous_target} → {d.target}</td></tr>
-              <tr><th scope="row">Held (confirmed fills)</th><td className="num">{d.held_qty_at_decision} SPY</td></tr>
+              <tr><th scope="row">Held (confirmed fills)</th><td className="num">{d.held_qty_at_decision} {d.symbol}</td></tr>
               <tr><th scope="row">Data source</th><td className="small">{d.data_source}</td></tr>
               <tr><th scope="row">Data fingerprint</th><td className="mono small">{d.data_fingerprint || "—"}</td></tr>
               <tr><th scope="row">Fetched</th><td><DubaiTime t={d.data_fetched_at} /></td></tr>
             </tbody>
           </table>
-          {d.inputs?.sizing && (
+          {d.inputs?.sizing?.by_fraction !== undefined && (
             <>
               <h3>Entry sizing</h3>
               <table><tbody>
@@ -206,9 +207,9 @@ export function Orders() {
                 <tr key={i.id}>
                   <td>{i.decision_id ? <Link to={`/decisions/${i.decision_id}`}>{i.id}</Link> : i.id}</td>
                   <td><StateBadge state={i.state} />{i.review_required && <Badge kind="bad">review</Badge>}</td>
-                  <td>{i.kind} {i.side}</td>
+                  <td>{i.symbol && i.symbol !== "SPY" ? `${i.symbol} ` : ""}{i.kind} {i.side}</td>
                   <td>{i.execution_session}</td>
-                  <td>{i.side === "BUY" ? <Money v={i.submitted_notional_money || i.frozen_notional_money} /> : <span className="num">{i.target_qty} SPY</span>}</td>
+                  <td>{i.side === "BUY" ? <Money v={i.submitted_notional_money || i.frozen_notional_money} /> : <span className="num">{i.target_qty} {i.symbol ?? "SPY"}</span>}</td>
                   <td className="num">{i.filled_qty}</td>
                   <td className="mono small">{i.client_order_id}</td>
                   <td>{i.review_required && <button onClick={() => setAckId(i)}>Review…</button>}</td>

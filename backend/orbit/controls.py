@@ -41,7 +41,7 @@ def readiness(s: Session, now: datetime, broker_configured: bool) -> dict:
     """Setup checks required before activation. Each item is explained in plain English."""
     c = control(s)
     rep = s.scalar(select(ReconciliationReport).order_by(ReconciliationReport.id.desc()))
-    dec = s.scalar(select(Decision).where(Decision.account_key == c.account_fingerprint).order_by(Decision.id.desc())) if c.account_fingerprint else None
+    dec = s.scalar(select(Decision).where(Decision.account_key == c.account_fingerprint, Decision.symbol == "SPY").order_by(Decision.id.desc())) if c.account_fingerprint else None
     checks = [
         {"id": "credentials", "ok": broker_configured, "text": "Alpaca PAPER credentials found in local .env (values never shown)."},
         {"id": "account_read", "ok": bool(c.account_fingerprint), "text": "Worker has read the paper account at least once."},
@@ -83,7 +83,7 @@ def activate(s: Session, now: datetime, cal: MarketCalendar, broker_configured: 
     # Onboarding rule: if flat and the latest completed close signals INVESTED, create the first entry intent.
     created = None
     pos = position(s, c.account_fingerprint)
-    dec = s.scalar(select(Decision).where(Decision.account_key == c.account_fingerprint, Decision.data_mode == "ALPACA")
+    dec = s.scalar(select(Decision).where(Decision.account_key == c.account_fingerprint, Decision.symbol == "SPY", Decision.data_mode == "ALPACA")
                    .order_by(Decision.session.desc(), Decision.sequence.desc()))
     if dec and dec.target == INVESTED and pos.held_qty == 0 and not open_intents(s, c.account_fingerprint):
         created = _entry_from_decision(s, dec, now, cal, "Onboarding: flat while the latest completed close signals INVESTED.")
@@ -204,7 +204,7 @@ def acknowledge_review(s: Session, intent_id: int, now: datetime, cal: MarketCal
     audit(s, "user", "review_acknowledged", {"intent_id": it.id, "create_new": create_new})
     new_id = None
     if create_new and it.side == "BUY":
-        dec = s.scalar(select(Decision).where(Decision.account_key == c.account_fingerprint, Decision.data_mode == "ALPACA")
+        dec = s.scalar(select(Decision).where(Decision.account_key == c.account_fingerprint, Decision.symbol == "SPY", Decision.data_mode == "ALPACA")
                        .order_by(Decision.session.desc(), Decision.sequence.desc()))
         if dec and dec.target == INVESTED and position(s, c.account_fingerprint).held_qty == 0 and c.mode == "PAPER_AUTO":
             new_id = _entry_from_decision(s, dec, now, cal, f"After review of intent {it.id}: latest completed signal still INVESTED.", parent_id=it.id)

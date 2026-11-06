@@ -138,7 +138,15 @@ def build_engine(settings: Settings, db: Database) -> Engine:
 
         broker = AlpacaPaperAdapter(settings)
         data = AlpacaDataProvider(broker)
-    return Engine(db, broker, cal, data, settings)
+    return Engine(db, broker, cal, data, settings, also_manage=("GLD",))
+
+
+def build_gold_engine(settings: Settings, db: Database, spy_engine: Engine):
+    """Gold AI strategy sharing the SPY engine's broker, calendar and data provider (None without a broker)."""
+    if spy_engine.broker is None:
+        return None
+    from orbit.gold_engine import GoldEngine
+    return GoldEngine(db, spy_engine.broker, spy_engine.cal, spy_engine.data, settings)
 
 
 def main() -> int:
@@ -177,6 +185,7 @@ def main() -> int:
     if stop_flag.exists():
         stop_flag.unlink()
     engine = build_engine(settings, db)
+    gold = build_gold_engine(settings, db, engine)
     sender = build_senders(settings)  # {channel: sender}; empty when no channel is configured
     hb = Heartbeat(settings)
     with db.session() as s:
@@ -192,8 +201,17 @@ def main() -> int:
             heartbeat(db, owner, now)
             tick_ok = False
             try:
-                engine.tick(now)
+                ctx = engine.tick(now)
                 tick_ok = True
+                if gold is not None:
+                    try:
+                        gold.tick_after(ctx)
+                    except Exception as gexc:  # noqa: BLE001 - the gold experiment must never break the SPY strategy
+                        log.exception("gold AI cycle failed: %s", redact(gexc))
+                        with db.session() as s:
+                            emit(s, "reconciliation_failed", "warning", "Gold AI cycle error",
+                                 f"{type(gexc).__name__}: {redact(gexc)[:400]}. The SPY strategy is not affected.",
+                                 f"golderr:{now:%Y%m%d%H}", settings=settings)
             except Exception as exc:  # noqa: BLE001 - log, alert and continue; state is durable
                 log.exception("tick failed: %s", redact(exc))
                 with db.session() as s:

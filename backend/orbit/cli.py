@@ -159,6 +159,23 @@ def cmd_heartbeat_test(_):
     return 1
 
 
+def cmd_gold(a):
+    from decimal import Decimal
+    from orbit import gold_engine
+    from orbit.engine import active_version, version_params
+    st, db = _db()
+    with db.session() as s:
+        p, _ = version_params(active_version(s))
+        cur = gold_engine.get_settings(s)
+        if a.state == "status":
+            print(json.dumps(cur))
+            return 0
+        budget = Decimal(a.budget) if a.budget else Decimal(cur["budget_usd"])
+        out = gold_engine.set_settings(s, a.state == "on", budget, p.max_entry_notional_usd, actor="owner-cli")
+    print(json.dumps(out), "(paper only; the worker reads this on its next cycle)")
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="orbit")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -170,6 +187,8 @@ def main(argv=None):
     sub.add_parser("telegram-setup").set_defaults(fn=cmd_telegram_setup)
     sub.add_parser("telegram-test").set_defaults(fn=cmd_telegram_test)
     sub.add_parser("heartbeat-test").set_defaults(fn=cmd_heartbeat_test)
+    gp = sub.add_parser("gold"); gp.add_argument("state", choices=["on", "off", "status"]); gp.add_argument("--budget")
+    gp.set_defaults(fn=cmd_gold)
     a = ap.parse_args(argv)
     return a.fn(a)
 

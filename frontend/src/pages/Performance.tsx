@@ -57,14 +57,15 @@ function MonthGrid({ months }: { months: any[] }) {
   );
 }
 
-export function Performance() {
-  const { data: p, error } = usePoll<any>("/api/performance", 120000);
+export function Performance({ symbol = "SPY", embedded = false }: { symbol?: string; embedded?: boolean }) {
+  const { data: p, error } = usePoll<any>(`/api/performance?symbol=${symbol}`, 120000);
   if (error) return <ErrorNote error={error} />;
   if (!p) return <Loading />;
+  const who = symbol === "GLD" ? "the gold AI" : "the rule";
   return (
     <div>
-      <h1>Performance</h1>
-      <p className="muted">Is the rule actually helping? This compares Orbit's real paper trades with simply buying the same money of SPY and never selling.</p>
+      {embedded ? <h2>{symbol} performance</h2> : <h1>Performance</h1>}
+      <p className="muted">Is {who} actually helping? This compares Orbit's real paper trades with simply buying the same money of {symbol} and never selling.</p>
       {!p.available ? (
         <div className="banner info"><span aria-hidden="true">ℹ</span><div>{p.reason}</div></div>
       ) : (

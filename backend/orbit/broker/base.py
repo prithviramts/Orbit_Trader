@@ -199,7 +199,7 @@ def make_client_order_id(account_key: str, strategy_version_id: int, symbol: str
 class ExecutionGuard:
     """Independent limits enforced right before any order leaves the process."""
 
-    ALLOWED_SYMBOLS = {"SPY"}
+    ALLOWED_SYMBOLS = {"SPY", "GLD"}  # SPY rule + gold AI experiment (paper only)
 
     def __init__(self, max_buy_notional: Decimal):
         self.max_buy_notional = D(max_buy_notional)

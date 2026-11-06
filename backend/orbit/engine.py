@@ -180,13 +180,16 @@ class Engine:
     """All forward-operation logic. The worker calls ``tick``; tests call the same entry point."""
 
     def __init__(self, db, broker: BrokerAdapter | None, calendar: MarketCalendar, data_provider, settings: Settings,
-                 symbol: str = "SPY"):
+                 symbol: str = "SPY", also_manage: tuple[str, ...] = ()):
         self.db = db
         self.broker = broker
         self.cal = calendar
         self.data = data_provider
         self.settings = settings
         self.symbol = symbol
+        # Other Orbit strategies trading in the same account (e.g. the gold AI). Their holdings are
+        # reconciled against their own strategy positions instead of being treated as foreign.
+        self.managed = (symbol, *[x for x in also_manage if x != symbol])
 
     # ============================================================ tick
     def tick(self, now: datetime) -> TickContext:
@@ -273,11 +276,13 @@ class Engine:
                     discrepancies.append({"kind": "FOREIGN_ORDER", "detail": f"Open {o.side} {o.symbol} order not created by Orbit (status {o.status})."})
             pos = position(s, akey, self.symbol)
             for sym, p in pos_map.items():
-                if sym != self.symbol:
+                if sym not in self.managed:
                     discrepancies.append({"kind": "FOREIGN_HOLDING", "detail": f"Holding in {sym} is not managed by this strategy."})
-            broker_qty = pos_map[self.symbol].qty if self.symbol in pos_map else Decimal(0)
-            if abs(broker_qty - pos.held_qty) > DRIFT_EPS:
-                discrepancies.append({"kind": "HOLDING_MISMATCH", "detail": f"Broker {self.symbol} qty {broker_qty} vs strategy-confirmed qty {pos.held_qty}."})
+            for sym in self.managed:
+                held = pos.held_qty if sym == self.symbol else position(s, akey, sym).held_qty
+                broker_qty = pos_map[sym].qty if sym in pos_map else Decimal(0)
+                if abs(broker_qty - held) > DRIFT_EPS:
+                    discrepancies.append({"kind": "HOLDING_MISMATCH", "detail": f"Broker {sym} qty {broker_qty} vs strategy-confirmed qty {held}."})
             # --- external cash flows invalidate performance & drawdown
             seen = set((self._kv_get(s, "seen_cash_activities") or {}).get("ids", []))
             new_flows = [a for a in cash_acts if a.activity_type in INVALIDATING_CASH_TYPES and a.id not in seen]
@@ -320,7 +325,7 @@ class Engine:
             ctx.reconciled_at = now
             # risk pause: cancel pending strategy buys when broker is trusted
             if c.risk_paused_entries and ok:
-                for it in open_intents(s, akey):
+                for it in [i for sym in self.managed for i in open_intents(s, akey, sym)]:
                     if it.side == "BUY":
                         self._cancel_intent(s, it, "RISK_PAUSED_ENTRIES: pending strategy buy cancelled.", now)
             self._residual_exits(s, akey, now)
@@ -441,10 +446,10 @@ class Engine:
 
     def _residual_exits(self, s: Session, akey: str, now: datetime) -> None:
         pos = position(s, akey, self.symbol)
-        if pos.held_qty <= 0 or pos.signal_target != CASH or open_intents(s, akey):
+        if pos.held_qty <= 0 or pos.signal_target != CASH or open_intents(s, akey, self.symbol):
             return
-        last_exit = s.scalar(select(OrderIntent).where(OrderIntent.account_key == akey, OrderIntent.side == "SELL")
-                             .order_by(OrderIntent.id.desc()))
+        last_exit = s.scalar(select(OrderIntent).where(OrderIntent.account_key == akey, OrderIntent.symbol == self.symbol,
+                                                       OrderIntent.side == "SELL").order_by(OrderIntent.id.desc()))
         if last_exit is None or last_exit.state != "TERMINAL_PARTIAL":
             return
         if s.scalar(select(OrderIntent.id).where(OrderIntent.parent_intent_id == last_exit.id)):
@@ -484,7 +489,7 @@ class Engine:
             for j in jobs:
                 c = control(s)
                 res = [{"intent_id": it.id, "result": self._cancel_intent(s, it, "Cancelled by owner.", ctx.now)}
-                       for it in open_intents(s, c.account_fingerprint)] if (c.account_fingerprint and ctx.account) else []
+                       for sym in self.managed for it in open_intents(s, c.account_fingerprint, sym)] if (c.account_fingerprint and ctx.account) else []
                 j.status = "DONE" if ctx.account else "FAILED"
                 j.error = "" if ctx.account else "broker unreachable; cancellation not attempted"
                 j.result, j.finished_at = {"results": res}, ctx.now
@@ -551,7 +556,7 @@ class Engine:
             if s.scalar(select(Decision.id).where(Decision.account_key == akey, Decision.symbol == self.symbol, Decision.session == sess.day)):
                 return None
             # durable job claim: unique (type,key) prevents a second worker/tick from evaluating the same session
-            job = Job(job_type="evaluate", job_key=f"{akey}:{sess.day}:try{ctx.now:%Y%m%d%H}", status="RUNNING", started_at=ctx.now,
+            job = Job(job_type="evaluate", job_key=self._job_key(akey, sess.day, ctx.now), status="RUNNING", started_at=ctx.now,
                       payload={"session": sess.day.isoformat()})
             try:
                 with s.begin_nested():
@@ -563,7 +568,7 @@ class Engine:
         if series is not None:
             self._store_dataset(series)
         with self.db.session() as s:
-            job = s.scalar(select(Job).where(Job.job_type == "evaluate", Job.job_key == f"{akey}:{sess.day}:try{ctx.now:%Y%m%d%H}"))
+            job = s.scalar(select(Job).where(Job.job_type == "evaluate", Job.job_key == self._job_key(akey, sess.day, ctx.now)))
             nxt = self.cal.next_session(sess.day)
             if data_err and nxt and ctx.now < nxt.open_utc - timedelta(minutes=10):
                 # Data not ready yet: wait (no decision yet), retry next hour's job slot.
@@ -574,6 +579,10 @@ class Engine:
             d = self._decide(s, ctx, sess.day, series, data_err, v, p)
             job.status, job.finished_at, job.result = "DONE", ctx.now, {"decision_id": d.id, "action": d.action}
             return d
+
+    def _job_key(self, akey: str, day: date, now: datetime) -> str:
+        prefix = "" if self.symbol == "SPY" else f"{self.symbol}:"  # SPY keys unchanged from v1
+        return f"{prefix}{akey}:{day}:try{now:%Y%m%d%H}"
 
     def _store_dataset(self, series: BarSeries) -> None:
         from orbit.data.bars import bars_to_json
@@ -724,7 +733,8 @@ class Engine:
             c = control(s)
             if not c.account_fingerprint:
                 return
-            d = s.scalar(select(Decision).where(Decision.account_key == c.account_fingerprint).order_by(Decision.session.desc(), Decision.sequence.desc()))
+            d = s.scalar(select(Decision).where(Decision.account_key == c.account_fingerprint, Decision.symbol == self.symbol)
+                         .order_by(Decision.session.desc(), Decision.sequence.desc()))
             if not d or not d.inputs.get("awaiting_conflict_resolution") or d.inputs.get("reassessed"):
                 return
             ids = d.inputs["awaiting_conflict_resolution"]
@@ -742,7 +752,7 @@ class Engine:
     def execute(self, ctx: TickContext) -> None:
         with self.db.session() as s:
             c = control(s)
-            pending = [i.id for i in open_intents(s, c.account_fingerprint) if i.state == "PENDING"] if c.account_fingerprint else []
+            pending = [i.id for i in open_intents(s, c.account_fingerprint, self.symbol) if i.state == "PENDING"] if c.account_fingerprint else []
         for iid in pending:
             self._execute_one(ctx, iid)
 

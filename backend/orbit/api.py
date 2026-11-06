@@ -160,7 +160,7 @@ def _times(dt):
 
 # ------------------------------------------------------------------ serializers
 def ser_decision(d: Decision, full: bool = False) -> dict:
-    out = {"id": d.id, "session": d.session.isoformat(), "sequence": d.sequence, "action": d.action, "target": d.target,
+    out = {"id": d.id, "symbol": d.symbol, "session": d.session.isoformat(), "sequence": d.sequence, "action": d.action, "target": d.target,
            "previous_target": d.previous_target, "comparison": d.comparison, "close": str(d.close) if d.close is not None else None,
            "sma": str(d.sma) if d.sma is not None else None, "window_count": d.window_count, "reason": d.reason,
            "mode_at_decision": d.mode_at_decision, "data_mode": d.data_mode, "data_source": d.data_source,
@@ -173,7 +173,7 @@ def ser_decision(d: Decision, full: bool = False) -> dict:
 
 
 def ser_intent(i: OrderIntent) -> dict:
-    return {"id": i.id, "decision_id": i.decision_id, "parent_intent_id": i.parent_intent_id, "kind": i.kind, "side": i.side,
+    return {"id": i.id, "symbol": i.symbol, "decision_id": i.decision_id, "parent_intent_id": i.parent_intent_id, "kind": i.kind, "side": i.side,
             "signal_session": i.signal_session.isoformat(), "execution_session": i.execution_session.isoformat(), "attempt": i.attempt,
             "client_order_id": i.client_order_id, "broker_order_id": i.broker_order_id, "broker_status": i.broker_status,
             "state": i.state, "frozen_notional": str(i.frozen_notional) if i.frozen_notional is not None else None,
@@ -252,6 +252,11 @@ class NotifyBody(BaseModel):
     include_financial_details: bool | None = None
     quiet_start: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
     quiet_end: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
+
+
+class GoldBody(BaseModel):
+    enabled: bool
+    budget_usd: Decimal = Field(Decimal("100"), ge=Decimal("1"), le=Decimal("5000"))
 
 
 class ForecastBody(BaseModel):
@@ -384,8 +389,8 @@ def _routes(app: FastAPI):
         snap = s.scalar(select(BrokerSnapshot).where(BrokerSnapshot.ok.is_(True)).order_by(BrokerSnapshot.id.desc()))
         last_any = s.scalar(select(BrokerSnapshot).order_by(BrokerSnapshot.id.desc()))
         rep = s.scalar(select(ReconciliationReport).order_by(ReconciliationReport.id.desc()))
-        dec = s.scalar(select(Decision).order_by(Decision.session.desc(), Decision.sequence.desc()))
-        pos = s.scalar(select(StrategyPosition).where(StrategyPosition.account_key == c.account_fingerprint)) if c.account_fingerprint else None
+        dec = s.scalar(select(Decision).where(Decision.symbol == "SPY").order_by(Decision.session.desc(), Decision.sequence.desc()))
+        pos = s.scalar(select(StrategyPosition).where(StrategyPosition.account_key == c.account_fingerprint, StrategyPosition.symbol == "SPY")) if c.account_fingerprint else None
         oi = list(s.scalars(select(OrderIntent).where(OrderIntent.state.in_(OPEN_INTENT_STATES)).order_by(OrderIntent.id)))
         review = list(s.scalars(select(OrderIntent).where(OrderIntent.review_required.is_(True))))
         marks = list(s.scalars(select(EquityMark).where(EquityMark.account_key == c.account_fingerprint).order_by(EquityMark.session))) if c.account_fingerprint else []
@@ -457,18 +462,82 @@ def _routes(app: FastAPI):
                  "sma200": str(sma[b.day]) if sma.get(b.day) is not None else None} for b in series.bars]
         decisions, fills = [], []
         if ds.mode == "ALPACA":
-            decisions = [ser_decision(d) for d in s.scalars(select(Decision).where(Decision.data_mode == "ALPACA").order_by(Decision.session))]
-            fills = [ser_fill(f) for f in s.scalars(select(Fill).order_by(Fill.at))]
+            decisions = [ser_decision(d) for d in s.scalars(select(Decision).where(Decision.data_mode == "ALPACA", Decision.symbol == "SPY").order_by(Decision.session))]
+            fills = [ser_fill(f) for f in s.scalars(select(Fill).join(OrderIntent, Fill.intent_id == OrderIntent.id).where(OrderIntent.symbol == "SPY").order_by(Fill.at))]
         quality = validate_bars(series.bars, st.cal)
         return {"available": True, "dataset": {"id": ds.id, **(ds.describe or {})}, "bars": bars, "decisions": decisions, "fills": fills,
                 "missing_sessions": quality["missing_sessions"][:200]}
 
-    @app.get("/api/performance")
-    def perf(_=Depends(require_session), s=Depends(S)):
+    @app.get("/api/gold")
+    def gold(_=Depends(require_session), s=Depends(S)):
+        from orbit import gold_ai, gold_engine
         c = control(s)
-        ds = s.scalar(select(Dataset).where(Dataset.mode == "ALPACA", Dataset.symbol == "SPY").order_by(Dataset.id.desc()))
+        p, _r = version_params(active_version(s))
+        model = gold_ai.load(st.settings.data_dir / "models")
+        mstat = (s.get(KV, gold_engine.MODEL_KEY).value if s.get(KV, gold_engine.MODEL_KEY) else {}) or {}
+        akey = c.account_fingerprint
+        decs = list(s.scalars(select(Decision).where(Decision.symbol == "GLD").order_by(Decision.session.desc(), Decision.sequence.desc()).limit(250)))
+        ds = s.scalar(select(Dataset).where(Dataset.mode == "ALPACA", Dataset.symbol == "GLD").order_by(Dataset.id.desc()))
+        bars = _series_from_dataset(ds).bars if ds else []
+        idx = {b.day: i for i, b in enumerate(bars)}
+        scored, hits, ups = [], 0, 0
+        for d in decs:
+            prob = (d.inputs or {}).get("probability")
+            i = idx.get(d.session)
+            if prob is None or i is None or i + gold_ai.HORIZON >= len(bars):
+                continue
+            up = bars[i + gold_ai.HORIZON].close > bars[i + 1].open
+            hits += int((prob > 0.5) == up)
+            ups += int(up)
+            scored.append({"session": d.session.isoformat(), "probability": prob, "went_up": up, "right": (prob > 0.5) == up})
+        latest = decs[0] if decs else None
+        pos = s.scalar(select(StrategyPosition).where(StrategyPosition.account_key == akey, StrategyPosition.symbol == "GLD")) if akey else None
+        closes = [(b.day, b.close) for b in bars]
+        ev = dict(model.evaluation) if model else {}
+        return {
+            "settings": gold_engine.get_settings(s), "cap_usd": str(p.max_entry_notional_usd), "mode": c.mode,
+            "model": None if not model else {
+                "version": model.version, "trained_through": model.trained_through, "trained_at": model.trained_at, "rows": model.train_rows,
+                "enter": model.enter, "exit": model.exit, "horizon_days": gold_ai.HORIZON,
+                "weights": sorted([{"key": k, "label": gold_ai.LABELS[k], "weight": round(model.weights[1 + i], 4)} for i, k in enumerate(gold_ai.KEYS)],
+                                  key=lambda w: abs(w["weight"]), reverse=True),
+                "evaluation": ev},
+            "training": mstat,
+            "latest": None if not latest else {**ser_decision(latest), "probability": (latest.inputs or {}).get("probability"),
+                                                "signals": (latest.inputs or {}).get("signals", [])[:12],
+                                                "would_action": (latest.inputs or {}).get("would_action")},
+            "history": [{"session": d.session.isoformat(), "action": d.action, "probability": (d.inputs or {}).get("probability"),
+                         "close": str(d.close) if d.close is not None else None} for d in reversed(decs[:120])],
+            "scorecard": {"scored": len(scored), "hit_rate_pct": round(100 * hits / len(scored), 1) if scored else None,
+                          "always_up_pct": round(100 * ups / len(scored), 1) if scored else None, "recent": scored[:20],
+                          "meaning": "A call counts as right when the AI said above 50% and GLD was higher 20 trading days later (bought at the next open), or below 50% and it was not."},
+            "position": {"held_qty": str(pos.held_qty), "cost_basis": mp(pos.cost_basis)} if pos else None,
+            "open_intents": [ser_intent(i) for i in s.scalars(select(OrderIntent).where(OrderIntent.symbol == "GLD", OrderIntent.state.in_(OPEN_INTENT_STATES)))],
+            "performance": performance.for_account(s, akey, "GLD", closes),
+            "honesty": ([f"In its latest test on years it never saw ({ev['from'][:4]}-{ev['to'][:4]}) the AI made {ev['model']['total_return_pct']:+.0f}% "
+                         f"while simply holding gold made {ev['hold']['total_return_pct']:+.0f}%.",
+                         f"Its up/down calls were right {ev['direction_hit_rate_pct']}% of the time; saying 'up' every time would have been right "
+                         f"{ev['always_up_rate_pct']}%."] if ev.get("model") else
+                        ["In research on 2022-2026 (years it never saw) the AI earned less than simply holding gold, and its up/down calls were right about half the time."])
+                       + ["It retrains every 28 days on all completed history. More signals do not guarantee better results; the live scorecard will tell."],
+        }
+
+    @app.post("/api/gold/settings")
+    def gold_settings(body: GoldBody, _=Depends(require_session), s=Depends(S)):
+        from orbit import gold_engine
+        p, _r = version_params(active_version(s))
+        try:
+            return {"ok": True, "settings": gold_engine.set_settings(s, body.enabled, body.budget_usd, p.max_entry_notional_usd)}
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+
+    @app.get("/api/performance")
+    def perf(symbol: str = "SPY", _=Depends(require_session), s=Depends(S)):
+        c = control(s)
+        symbol = "GLD" if symbol.upper() == "GLD" else "SPY"
+        ds = s.scalar(select(Dataset).where(Dataset.mode == "ALPACA", Dataset.symbol == symbol).order_by(Dataset.id.desc()))
         closes = [(b.day, b.close) for b in _series_from_dataset(ds).bars] if ds else []
-        out = performance.for_account(s, c.account_fingerprint, "SPY", closes)
+        out = performance.for_account(s, c.account_fingerprint, symbol, closes)
         out["fx"] = fx_assumption()
         out["usd_to_aed"] = str(st.settings.usd_to_aed)
         return out
@@ -575,8 +644,10 @@ def _routes(app: FastAPI):
 
     # -------------------------------------------------------------- decisions & orders
     @app.get("/api/decisions")
-    def decisions(q: str = "", action: str = "", page: int = 1, _=Depends(require_session), s=Depends(S)):
+    def decisions(q: str = "", action: str = "", symbol: str = "", page: int = 1, _=Depends(require_session), s=Depends(S)):
         stmt = select(Decision)
+        if symbol:
+            stmt = stmt.where(Decision.symbol == symbol.upper()[:8])
         if action:
             stmt = stmt.where(Decision.action == action.upper()[:8])
         if q:
@@ -608,7 +679,9 @@ def _routes(app: FastAPI):
         for f in fills:
             timeline.append({"at": _times(f.at), "kind": "FILL", "text": f"{f.side} {f.qty.normalize()} @ {f.price:.4f} USD (broker order {f.broker_order_id})"})
         timeline.sort(key=lambda x: x["at"]["utc"] if x["at"] else "")
-        return {"decision": dd, "intents": ii, "fills": ff, "timeline": timeline, "explanation": explain_decision(dd, ii, ff)}
+        return {"decision": dd, "intents": ii, "fills": ff, "timeline": timeline, "explanation": explain_decision(dd, ii, ff) if d.symbol == "SPY" else [
+            "This is a Gold AI decision (paper experiment). The learning model estimated the chance that GLD is higher 20 trading days later.",
+            d.reason, "See the Gold AI page for the signals, the model and its live scorecard."]}
 
     @app.get("/api/orders")
     def orders(_=Depends(require_session), s=Depends(S)):
@@ -865,8 +938,8 @@ def _routes(app: FastAPI):
     @app.get("/api/learn/weekly")
     def learn_weekly(_=Depends(require_session), s=Depends(S)):
         since = now_utc() - timedelta(days=7)
-        d = s.scalar(select(Decision).where(Decision.known_at >= since, Decision.action.in_(["BUY", "SELL"])).order_by(Decision.id.desc())) or \
-            s.scalar(select(Decision).order_by(Decision.id.desc()))
+        d = s.scalar(select(Decision).where(Decision.symbol == "SPY", Decision.known_at >= since, Decision.action.in_(["BUY", "SELL"])).order_by(Decision.id.desc())) or \
+            s.scalar(select(Decision).where(Decision.symbol == "SPY").order_by(Decision.id.desc()))
         if d:
             return {"kind": "actual_decision", "decision_id": d.id, "session": d.session.isoformat(),
                     "prompt": "Open this decision, read the inputs, and check: did the action follow the rule exactly?"}

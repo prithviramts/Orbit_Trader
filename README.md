@@ -52,7 +52,9 @@ against an in-memory **MOCK** broker on port 8766 without touching your real dat
 - [docs/SERVER_SETUP.md](docs/SERVER_SETUP.md): run it 24/7 on a private server (Tailscale, heartbeat, backups)
 - [docs/PHONE_ACCESS.md](docs/PHONE_ACCESS.md): open Orbit on your phone privately (Tailscale, home-screen icon)
 - [docs/HEARTBEAT.md](docs/HEARTBEAT.md): get warned when Orbit stops running
+- [docs/GOLD_AI.md](docs/GOLD_AI.md): the gold AI paper experiment (how it decides, honest expectations, controls)
 - [docs/research/GOLD_STEP1.md](docs/research/GOLD_STEP1.md): should Orbit trade gold? (research result)
+- [docs/research/GOLD_STEP2.md](docs/research/GOLD_STEP2.md): 15 gold rules and a learning model, tested on unseen years
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md): server background and constraints
 - [docs/VERIFICATION_NOTES.md](docs/VERIFICATION_NOTES.md): what was checked against official docs
 - [docs/REQUIREMENTS_MATRIX.md](docs/REQUIREMENTS_MATRIX.md) and [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md)

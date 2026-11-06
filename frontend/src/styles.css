@@ -282,3 +282,14 @@ button.call.down.on { background: color-mix(in srgb, var(--down) 18%, var(--pane
 .bell-item.warning .t { color: var(--warn); }
 .bell-wrap { position: relative; }
 @media (max-width: 640px) { .topbar { backdrop-filter: none; } .bell-panel { position: fixed; left: 1rem; right: 1rem; top: 4.5rem; width: auto; max-height: calc(100vh - 6rem); } }
+/* Gold AI */
+.gauge { position: relative; height: 14px; border-radius: 999px; overflow: visible; margin: .9rem 0 1.6rem; background: var(--panel-2); border: 1px solid var(--line); }
+.gauge-zone { position: absolute; top: 0; bottom: 0; }
+.gauge-zone.sell { left: 0; background: color-mix(in srgb, var(--down) 28%, transparent); border-radius: 999px 0 0 999px; }
+.gauge-zone.hold { background: color-mix(in srgb, var(--muted) 18%, transparent); }
+.gauge-zone.buy { background: color-mix(in srgb, var(--up) 28%, transparent); border-radius: 0 999px 999px 0; }
+.gauge-needle { position: absolute; top: -5px; width: 4px; height: 24px; margin-left: -2px; border-radius: 2px; background: var(--text); }
+.gauge-labels { position: absolute; top: 18px; left: 0; right: 0; display: flex; justify-content: space-between; }
+.push { height: 10px; border-radius: 3px; min-width: 2px; }
+.push.pos { background: var(--up); }
+.push.neg { background: var(--down); }

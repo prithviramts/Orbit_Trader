@@ -24,6 +24,7 @@ const Setup = lazyPage(() => import("./pages/Ops"), "Setup");
 const Status = lazyPage(() => import("./pages/Status"), "Status");
 const News = lazyPage(() => import("./pages/News"), "News");
 const Performance = lazyPage(() => import("./pages/Performance"), "Performance");
+const Gold = lazyPage(() => import("./pages/Gold"), "Gold");
 import "./styles.css";
 
 function getTheme(): string {
@@ -189,7 +190,7 @@ function App() {
   if (auth === "unknown") return <div style={{ padding: "2rem" }}><Loading /></div>;
   if (auth === "out") return <Login onDone={check} />;
   const groups: [string, NavItem[]][] = [
-    ["Trade", [["/", "home", "Overview"], ["/market", "candles", "Market & live chart"], ["/orders", "swap", "Orders & positions"], ["/decisions", "list", "Decisions"], ["/performance", "trend", "Performance"], ["/news", "news", "News & forecasts"]]],
+    ["Trade", [["/", "home", "Overview"], ["/market", "candles", "Market & live chart"], ["/orders", "swap", "Orders & positions"], ["/decisions", "list", "Decisions"], ["/performance", "trend", "Performance"], ["/gold", "coin", "Gold AI"], ["/news", "news", "News & forecasts"]]],
     ["Learn", [["/research", "flask", "Research"], ["/learn", "book", "Learn"], ["/journal", "pen", "Journal & costs"]]],
     ["System", [["/status", "phone", "Status (phone)"], ["/setup", "plug", "Setup"], ["/ops", "gear", "Operations"], ["/security", "shield", "Security"]]],
   ];
@@ -226,6 +227,7 @@ function App() {
             <Route path="/journal" element={<Journal />} />
             <Route path="/news" element={<News />} />
             <Route path="/performance" element={<Performance />} />
+            <Route path="/gold" element={<Gold />} />
             <Route path="/ops" element={<Operations />} />
             <Route path="/security" element={<Security />} />
             <Route path="*" element={<NotFound />} />
