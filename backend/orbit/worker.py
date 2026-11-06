@@ -24,6 +24,7 @@ from pathlib import Path
 from sqlalchemy import select, text, update
 from sqlalchemy.exc import IntegrityError
 
+from orbit import autobackup
 from orbit.config import Settings, get_settings, redact, validate_startup
 from orbit.db import Database, WorkerLease, init_db
 from orbit.engine import Engine
@@ -204,6 +205,11 @@ def main() -> int:
             # External dead-man's switch: only a completed cycle counts as "alive".
             if tick_ok and hb.maybe_ping(now) or hb.last_error:
                 record_heartbeat(db, hb)
+            try:
+                with db.session() as s:
+                    autobackup.maybe_run(s, settings, now)
+            except Exception as exc:  # noqa: BLE001 - a backup problem must never stop trading
+                log.warning("automatic backup step failed: %s", redact(exc))
             for _ in range(settings.worker_tick_seconds * 2):
                 if stop_flag.exists():
                     stop["flag"] = True

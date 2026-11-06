@@ -176,6 +176,17 @@ export function Operations() {
           <h2>Configuration (masked)</h2>
           <table className="small"><tbody>{Object.entries(o.config ?? {}).map(([k, v]: any) => <tr key={k}><th scope="row">{k}</th><td className="mono">{String(v)}</td></tr>)}</tbody></table>
           <h3>Backups</h3>
+          {o.auto_backup && (
+            <p className="small">
+              <strong>Automatic daily backup:</strong>{" "}
+              {o.auto_backup.attempt_day ? (o.auto_backup.ok ? <>last one {o.auto_backup.file} ✓</> : <span className="chg down">last attempt failed: {o.auto_backup.error}</span>) : "not run yet (first one after 07:00 Dubai)"}
+              {" · "}keeps {o.auto_backup.keep}{" · "}
+              {o.auto_backup.second_copy_configured
+                ? (o.auto_backup.copy_ok === false ? <span className="chg down">second copy failed</span> : <>second copy to {o.auto_backup.copied_to ?? "your backup folder"}</>)
+                : <span className="muted">no second copy (set ORBIT_BACKUP_COPY_DIR)</span>}
+              <br /><span className="muted">{o.auto_backup.meaning}</span>
+            </p>
+          )}
           <button onClick={async () => { setErr(null); try { const r: any = await post("/api/ops/backup"); setMsg(`Backup ${r.file}: integrity ${r.integrity}`); reload(); } catch (e: any) { setErr(e.message); } }}>Back up database now</button>
           <ul className="small">{(o.backups ?? []).map((b: any) => <li key={b.name}>{b.name} ({Math.round(b.size / 1024)} KB)</li>)}</ul>
           <p className="small muted">Restore drill: <code>.\scripts\restore-drill.ps1</code>. Restore: stop Orbit, then <code>.\scripts\restore.ps1 &lt;file&gt;</code>.</p>

@@ -50,6 +50,9 @@ against an in-memory **MOCK** broker on port 8766 without touching your real dat
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): components, state table, invariants
 - [docs/OPERATIONS_SECURITY.md](docs/OPERATIONS_SECURITY.md): security controls, incidents, backups, updates
 - [docs/SERVER_SETUP.md](docs/SERVER_SETUP.md): run it 24/7 on a private server (Tailscale, heartbeat, backups)
+- [docs/PHONE_ACCESS.md](docs/PHONE_ACCESS.md): open Orbit on your phone privately (Tailscale, home-screen icon)
+- [docs/HEARTBEAT.md](docs/HEARTBEAT.md): get warned when Orbit stops running
+- [docs/research/GOLD_STEP1.md](docs/research/GOLD_STEP1.md): should Orbit trade gold? (research result)
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md): server background and constraints
 - [docs/VERIFICATION_NOTES.md](docs/VERIFICATION_NOTES.md): what was checked against official docs
 - [docs/REQUIREMENTS_MATRIX.md](docs/REQUIREMENTS_MATRIX.md) and [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md)

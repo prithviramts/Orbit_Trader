@@ -144,6 +144,21 @@ def cmd_telegram_test(_):
     return 0
 
 
+def cmd_heartbeat_test(_):
+    from orbit.heartbeat import Heartbeat
+    from orbit.market_calendar import now_utc
+    st = get_settings()
+    hb = Heartbeat(st)
+    if not hb.enabled:
+        print("No heartbeat URL. Put your https ping URL after ORBIT_HEARTBEAT_URL= in .env (see docs/HEARTBEAT.md).")
+        return 1
+    if hb.maybe_ping(now_utc()):
+        print("Ping accepted. Your monitor should now show Orbit as 'up'.")
+        return 0
+    print(f"Ping failed ({hb.last_error}). Check the URL in .env.")
+    return 1
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="orbit")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -154,6 +169,7 @@ def main(argv=None):
     sub.add_parser("check").set_defaults(fn=cmd_check)
     sub.add_parser("telegram-setup").set_defaults(fn=cmd_telegram_setup)
     sub.add_parser("telegram-test").set_defaults(fn=cmd_telegram_test)
+    sub.add_parser("heartbeat-test").set_defaults(fn=cmd_heartbeat_test)
     a = ap.parse_args(argv)
     return a.fn(a)
 

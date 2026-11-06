@@ -261,3 +261,24 @@ button.call.down.on { background: color-mix(in srgb, var(--down) 18%, var(--pane
   .chart-box { height: 260px; }
   .live-price { font-size: 1.55rem; }
 }
+/* Performance month grid */
+.month-grid th, .month-grid td { text-align: center; padding: .35rem .4rem; font-size: .8rem; }
+.month-grid .cell-up { color: var(--up); background: color-mix(in srgb, var(--up) 10%, transparent); }
+.month-grid .cell-down { color: var(--down); background: color-mix(in srgb, var(--down) 10%, transparent); }
+
+/* Alerts bell */
+.bell { position: relative; }
+.bell-count { position: absolute; top: -2px; right: -2px; min-width: 1.05rem; height: 1.05rem; border-radius: 999px; background: var(--down);
+  color: #fff; font-size: .65rem; font-weight: 700; display: grid; place-items: center; padding: 0 .2rem; }
+.bell-panel { position: absolute; right: 0; top: calc(100% + .4rem); width: min(380px, calc(100vw - 2rem)); max-height: 70vh; overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); z-index: 20; padding: .4rem 0; }
+.bell-head { display: flex; align-items: center; justify-content: space-between; padding: .35rem .85rem .5rem; border-bottom: 1px solid var(--line); }
+.bell-item { padding: .55rem .85rem; border-bottom: 1px solid var(--line); }
+.bell-item:last-child { border-bottom: 0; }
+.bell-item.unread { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.bell-item .t { font-weight: 600; font-size: .86rem; }
+.bell-item .b { font-size: .8rem; color: var(--muted); white-space: pre-line; overflow-wrap: anywhere; margin-top: .15rem; }
+.bell-item.critical .t { color: var(--down); }
+.bell-item.warning .t { color: var(--warn); }
+.bell-wrap { position: relative; }
+@media (max-width: 640px) { .topbar { backdrop-filter: none; } .bell-panel { position: fixed; left: 1rem; right: 1rem; top: 4.5rem; width: auto; max-height: calc(100vh - 6rem); } }

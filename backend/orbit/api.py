@@ -29,7 +29,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, func, or_, select
 
-from orbit import auth, controls
+from orbit import auth, autobackup, controls, performance
 from orbit import forecasts as fc
 from orbit.data.live import TIMEFRAMES as LIVE_TIMEFRAMES, LiveDataError, LiveMarketData
 from orbit.backtest import CostModel, run_backtest
@@ -462,6 +462,16 @@ def _routes(app: FastAPI):
         quality = validate_bars(series.bars, st.cal)
         return {"available": True, "dataset": {"id": ds.id, **(ds.describe or {})}, "bars": bars, "decisions": decisions, "fills": fills,
                 "missing_sessions": quality["missing_sessions"][:200]}
+
+    @app.get("/api/performance")
+    def perf(_=Depends(require_session), s=Depends(S)):
+        c = control(s)
+        ds = s.scalar(select(Dataset).where(Dataset.mode == "ALPACA", Dataset.symbol == "SPY").order_by(Dataset.id.desc()))
+        closes = [(b.day, b.close) for b in _series_from_dataset(ds).bars] if ds else []
+        out = performance.for_account(s, c.account_fingerprint, "SPY", closes)
+        out["fx"] = fx_assumption()
+        out["usd_to_aed"] = str(st.settings.usd_to_aed)
+        return out
 
     @app.get("/api/market/live")
     def market_live(tf: str = "5Min", _=Depends(require_session)):
@@ -938,6 +948,9 @@ def _routes(app: FastAPI):
             "notifications": {"settings": get_notify_settings(s), "outbox": outbox,
                               "meaning": "ACCEPTED_BY_PROVIDER means ntfy accepted the message; it does not prove your phone displayed it. SUPPRESSED means push is not enabled/configured; the in-app inbox still has it."},
             "backups": [{"name": b.name, "size": b.stat().st_size, "modified": datetime.fromtimestamp(b.stat().st_mtime, UTC).isoformat()} for b in backups],
+            "auto_backup": {**autobackup.status(s), "keep": max(3, cfg.backup_keep), "second_copy_configured": bool(cfg.backup_copy_dir),
+                            "meaning": "The worker backs up the database once a day after 07:00 Dubai and keeps the newest copies. "
+                                       "Set ORBIT_BACKUP_COPY_DIR in .env (for example a OneDrive folder) to keep a second copy off this disk."},
             "monitoring_routine": monitoring_routine(st.cal, now),
             "heartbeat": {"configured": bool(cfg.heartbeat_url), **((s.get(KV, "heartbeat_status").value if s.get(KV, "heartbeat_status") else {}) or {}),
                           "meaning": "An external monitor that alerts you when pings STOP. Configure ORBIT_HEARTBEAT_URL (https) on the server."},

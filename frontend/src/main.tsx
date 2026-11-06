@@ -5,6 +5,7 @@ import { get, post, setCsrf } from "./api";
 import { Badge, clearPollCache, ErrorNote, Loading, ModeBadge, usePoll } from "./components";
 import { Icon, IconName } from "./icons";
 import { TickerChip } from "./ticker";
+import { AlertsBell } from "./bell";
 
 // Pages load on demand so the first screen appears quickly (charts are only downloaded when needed).
 const lazyPage = <K extends string>(load: () => Promise<Record<K, React.ComponentType>>, name: K) =>
@@ -22,6 +23,7 @@ const Security = lazyPage(() => import("./pages/Ops"), "Security");
 const Setup = lazyPage(() => import("./pages/Ops"), "Setup");
 const Status = lazyPage(() => import("./pages/Status"), "Status");
 const News = lazyPage(() => import("./pages/News"), "News");
+const Performance = lazyPage(() => import("./pages/Performance"), "Performance");
 import "./styles.css";
 
 function getTheme(): string {
@@ -117,6 +119,7 @@ function TopBar({ theme, setTheme, onLogout }: { theme: string; setTheme: (t: st
         )}
       </div>
       <span className="spacer" />
+      <AlertsBell />
       <button className="icon-btn" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} aria-label="Toggle light/dark theme" title="Light/dark theme">
         <Icon name={theme === "dark" ? "sun" : "moon"} />
       </button>
@@ -186,7 +189,7 @@ function App() {
   if (auth === "unknown") return <div style={{ padding: "2rem" }}><Loading /></div>;
   if (auth === "out") return <Login onDone={check} />;
   const groups: [string, NavItem[]][] = [
-    ["Trade", [["/", "home", "Overview"], ["/market", "candles", "Market & live chart"], ["/orders", "swap", "Orders & positions"], ["/decisions", "list", "Decisions"], ["/news", "news", "News & forecasts"]]],
+    ["Trade", [["/", "home", "Overview"], ["/market", "candles", "Market & live chart"], ["/orders", "swap", "Orders & positions"], ["/decisions", "list", "Decisions"], ["/performance", "trend", "Performance"], ["/news", "news", "News & forecasts"]]],
     ["Learn", [["/research", "flask", "Research"], ["/learn", "book", "Learn"], ["/journal", "pen", "Journal & costs"]]],
     ["System", [["/status", "phone", "Status (phone)"], ["/setup", "plug", "Setup"], ["/ops", "gear", "Operations"], ["/security", "shield", "Security"]]],
   ];
@@ -222,6 +225,7 @@ function App() {
             <Route path="/learn" element={<Learn />} />
             <Route path="/journal" element={<Journal />} />
             <Route path="/news" element={<News />} />
+            <Route path="/performance" element={<Performance />} />
             <Route path="/ops" element={<Operations />} />
             <Route path="/security" element={<Security />} />
             <Route path="*" element={<NotFound />} />

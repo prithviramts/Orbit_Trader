@@ -59,6 +59,15 @@ class Settings(BaseSettings):
     heartbeat_url: SecretStr | None = Field(default=None, alias="ORBIT_HEARTBEAT_URL")
     heartbeat_interval_seconds: int = Field(default=300, alias="ORBIT_HEARTBEAT_INTERVAL_SECONDS")
 
+    # Automatic daily backups (worker). Optional second folder, e.g. a OneDrive or USB folder.
+    backup_keep: int = Field(default=14, alias="ORBIT_BACKUP_KEEP")
+    backup_copy_dir: Path | None = Field(default=None, alias="ORBIT_BACKUP_COPY_DIR")
+
+    @field_validator("backup_copy_dir", mode="before")
+    @classmethod
+    def _blank_dir(cls, v):
+        return None if v is None or not str(v).strip() else v
+
     @field_validator("usd_to_aed")
     @classmethod
     def _rate_positive(cls, v: Decimal) -> Decimal:
