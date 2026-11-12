@@ -8,6 +8,7 @@ export function AlertsBell() {
   const { data, reload } = usePoll<any>("/api/events", 30000);
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState<number | null>(null);
+  const [leftAlign, setLeftAlign] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const items: any[] = data?.items ?? [];
   const unread = items.filter((e) => !e.read).length;
@@ -27,13 +28,18 @@ export function AlertsBell() {
 
   return (
     <div className="bell-wrap" ref={box}>
-      <button className="icon-btn bell" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(!open)}
+      <button className="icon-btn bell" aria-haspopup="dialog" aria-expanded={open} onClick={() => {
+          // Open towards whichever side has room, so the panel never runs off the screen.
+          const r = box.current?.getBoundingClientRect();
+          setLeftAlign(!!r && r.right < Math.min(380, window.innerWidth - 32) + 16);
+          setOpen(!open);
+        }}
         aria-label={unread ? `Alerts, ${unread} unread` : "Alerts"} title="Alerts">
         <Icon name="bell" />
         {unread > 0 && <span className="bell-count" aria-hidden="true">{unread > 99 ? "99+" : unread}</span>}
       </button>
       {open && (
-        <div className="bell-panel" role="dialog" aria-label="Recent alerts">
+        <div className={leftAlign ? "bell-panel left" : "bell-panel"} role="dialog" aria-label="Recent alerts">
           <div className="bell-head">
             <strong>Alerts</strong>
             {unread > 0 && <button className="ghost small" onClick={markRead}>Mark all read</button>}

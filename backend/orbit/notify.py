@@ -32,7 +32,7 @@ PUSH_TYPES = {
     "automation_activated", "automation_paused", "automation_changed", "intent_created", "order_submitted",
     "order_filled", "order_rejected", "stale_data", "reconciliation_failed", "missed_execution",
     "worker_started", "worker_stopped", "security_paused", "risk_warning", "risk_paused", "ambiguous_order",
-    "review_required", "settings_changed", "daily_summary", "test_notification", "cash_flow_detected",
+    "review_required", "settings_changed", "daily_summary", "test_notification", "cash_flow_detected", "monthly_report", "news_warning",
 }
 MAX_ATTEMPTS = 8
 NON_CRITICAL_PER_HOUR = 12

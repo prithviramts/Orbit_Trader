@@ -141,6 +141,39 @@ def build_engine(settings: Settings, db: Database) -> Engine:
     return Engine(db, broker, cal, data, settings, also_manage=("GLD",))
 
 
+class NightlyResearch:
+    """After-close extras that never trade: shadow lab, monthly report card, news warnings. Failures only log."""
+
+    def __init__(self, settings: Settings, db: Database, calendar):
+        from orbit import news_ai
+        from orbit.data.live import LiveMarketData
+        from orbit.gold_engine import SipHistory
+        self.settings, self.db, self.cal = settings, db, calendar
+        self.history = SipHistory(settings)
+        self.live = LiveMarketData(settings)
+        self.finbert = None
+        if news_ai.model_installed(settings.data_dir):
+            try:
+                import transformers  # noqa: F401 - only checks the optional "news" extra is installed
+                self.finbert = news_ai.FinBert(settings.data_dir)
+            except ImportError:
+                log.warning("FinBERT model found but the 'news' extra is not installed; news scoring is off.")
+
+    def run(self, now) -> None:
+        from orbit import news_ai, report, shadow
+        steps = [("shadow lab", lambda s: shadow.maybe_update(s, self.cal, now, self.history.daily)),
+                 ("monthly report", lambda s: report.maybe_send(s, self.settings, now))]
+        if self.finbert is not None:
+            steps.append(("news reader", lambda s: news_ai.maybe_update(
+                s, self.settings, self.cal, now, lambda: self.live.news("SPY,GLD", 50)["items"], self.finbert)))
+        for name, step in steps:
+            try:
+                with self.db.session() as s:
+                    step(s)
+            except Exception as exc:  # noqa: BLE001 - research extras must never stop trading
+                log.warning("%s step failed: %s", name, redact(exc))
+
+
 def build_gold_engine(settings: Settings, db: Database, spy_engine: Engine):
     """Gold AI strategy sharing the SPY engine's broker, calendar and data provider (None without a broker)."""
     if spy_engine.broker is None:
@@ -186,6 +219,7 @@ def main() -> int:
         stop_flag.unlink()
     engine = build_engine(settings, db)
     gold = build_gold_engine(settings, db, engine)
+    research = NightlyResearch(settings, db, engine.cal) if engine.broker is not None else None
     sender = build_senders(settings)  # {channel: sender}; empty when no channel is configured
     hb = Heartbeat(settings)
     with db.session() as s:
@@ -228,6 +262,8 @@ def main() -> int:
                     autobackup.maybe_run(s, settings, now)
             except Exception as exc:  # noqa: BLE001 - a backup problem must never stop trading
                 log.warning("automatic backup step failed: %s", redact(exc))
+            if research is not None:
+                research.run(now)
             for _ in range(settings.worker_tick_seconds * 2):
                 if stop_flag.exists():
                     stop["flag"] = True

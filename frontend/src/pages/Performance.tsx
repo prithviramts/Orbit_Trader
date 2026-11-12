@@ -1,5 +1,6 @@
 import { CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { ErrorNote, Loading, UsdAed, usePoll } from "../components";
+import { Compare } from "./Compare";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -57,14 +58,27 @@ function MonthGrid({ months }: { months: any[] }) {
   );
 }
 
-export function Performance({ symbol = "SPY", embedded = false }: { symbol?: string; embedded?: boolean }) {
+export function Performance({ symbol, embedded = false }: { symbol?: string; embedded?: boolean }) {
+  if (embedded && symbol) return <StrategyPerformance symbol={symbol} embedded />;
+  return (
+    <div>
+      <h1>Performance</h1>
+      <p className="muted">All strategies in one place: Orbit's real paper results first, then the shadow lab, then each real strategy in detail. Amounts show USD and AED.</p>
+      <Compare />
+      <StrategyPerformance symbol="SPY" embedded />
+      <StrategyPerformance symbol="GLD" embedded />
+    </div>
+  );
+}
+
+function StrategyPerformance({ symbol, embedded }: { symbol: string; embedded: boolean }) {
   const { data: p, error } = usePoll<any>(`/api/performance?symbol=${symbol}`, 120000);
   if (error) return <ErrorNote error={error} />;
   if (!p) return <Loading />;
   const who = symbol === "GLD" ? "the gold AI" : "the rule";
   return (
     <div>
-      {embedded ? <h2>{symbol} performance</h2> : <h1>Performance</h1>}
+      {embedded ? <h2 style={{ marginTop: "1.6rem" }}>{symbol === "GLD" ? "Gold AI (GLD)" : "SPY 200-day rule"}: in detail</h2> : <h1>Performance</h1>}
       <p className="muted">Is {who} actually helping? This compares Orbit's real paper trades with simply buying the same money of {symbol} and never selling.</p>
       {!p.available ? (
         <div className="banner info"><span aria-hidden="true">ℹ</span><div>{p.reason}</div></div>

@@ -159,6 +159,33 @@ def cmd_heartbeat_test(_):
     return 1
 
 
+def cmd_report(a):
+    """Print a monthly report card without sending it (preview)."""
+    from orbit import report
+    from orbit.market_calendar import DUBAI, now_utc
+    _, db = _db()
+    month = a.month or report._prev_month(now_utc().astimezone(DUBAI).date())
+    with db.session() as s:
+        title, body = report.build(s, month)
+    print(title)
+    print(body)
+    return 0
+
+
+def cmd_news_model(a):
+    """Download FinBERT for the AI news reader, or show whether it is installed."""
+    from orbit import news_ai
+    st = get_settings()
+    if a.action == "download":
+        print(f"Downloading {news_ai.MODEL_REPO} (about 440 MB) into {news_ai.model_dir(st.data_dir)} ...")
+        news_ai.download(st.data_dir)
+    ok = news_ai.model_installed(st.data_dir)
+    print("FinBERT installed." if ok else "FinBERT not installed. Run: uv run python -m orbit.cli news-model download")
+    if ok and a.action == "download":
+        print("Restart Orbit (run scripts/stop.ps1, then scripts/start.ps1) so the worker starts scoring headlines.")
+    return 0 if ok else 1
+
+
 def cmd_gold(a):
     from decimal import Decimal
     from orbit import gold_engine
@@ -187,6 +214,8 @@ def main(argv=None):
     sub.add_parser("telegram-setup").set_defaults(fn=cmd_telegram_setup)
     sub.add_parser("telegram-test").set_defaults(fn=cmd_telegram_test)
     sub.add_parser("heartbeat-test").set_defaults(fn=cmd_heartbeat_test)
+    nm = sub.add_parser("news-model"); nm.add_argument("action", choices=["download", "status"]); nm.set_defaults(fn=cmd_news_model)
+    rp = sub.add_parser("report"); rp.add_argument("--month", help="YYYY-MM, default last month"); rp.set_defaults(fn=cmd_report)
     gp = sub.add_parser("gold"); gp.add_argument("state", choices=["on", "off", "status"]); gp.add_argument("--budget")
     gp.set_defaults(fn=cmd_gold)
     a = ap.parse_args(argv)

@@ -2,6 +2,7 @@
 . "$PSScriptRoot\_common.ps1"
 New-Item -ItemType Directory -Force $RunDir | Out-Null
 Set-Content (Join-Path $RunDir "worker.stop") "stop"
+Set-Content (Join-Path $RunDir "manual-stop") "Stopped on purpose; the auto-start watchdog waits until start.ps1 runs."
 
 function Stop-Tree($id) {
   Get-CimInstance Win32_Process -Filter "ParentProcessId=$id" -ErrorAction SilentlyContinue |

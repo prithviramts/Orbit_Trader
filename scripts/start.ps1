@@ -1,6 +1,7 @@
 # Starts the dashboard/API and the single trading worker as two background processes.
 . "$PSScriptRoot\_common.ps1"
 New-Item -ItemType Directory -Force $RunDir, $LogDir | Out-Null
+Remove-Item (Join-Path $RunDir "manual-stop") -ErrorAction SilentlyContinue  # lets the auto-start watchdog act again
 if (-not (Test-Path (Join-Path $Frontend "dist\index.html"))) { throw "Dashboard not built. Run .\scripts\setup.ps1 first." }
 
 Push-Location $Backend
@@ -9,6 +10,10 @@ $ok = $LASTEXITCODE
 Pop-Location
 if ($ok -ne 0) { throw "Configuration problems (see above). Nothing was started." }
 
+# The AI news reader needs the optional "news" libraries; include them once the FinBERT model is downloaded.
+$Extra = @()
+if (Test-Path (Join-Path $DataDir "models/finbert/config.json")) { $Extra = @("--extra", "news") }
+
 function Start-Orbit($name, $module) {
   $pidFile = Join-Path $RunDir "$name.pid"
   if (Test-Path $pidFile) {
@@ -16,7 +21,7 @@ function Start-Orbit($name, $module) {
     if ($old -and (Get-Process -Id $old -ErrorAction SilentlyContinue)) { Write-Host "$name already running (pid $old)."; return }
   }
   $out = Join-Path $LogDir "$name.console.log"
-  $p = Start-Process -FilePath "uv" -ArgumentList @("run", "--frozen", "python", "-m", $module) -WorkingDirectory $Backend `
+  $p = Start-Process -FilePath "uv" -ArgumentList (@("run", "--frozen") + $Extra + @("python", "-m", $module)) -WorkingDirectory $Backend `
        -RedirectStandardOutput $out -RedirectStandardError "$out.err" -WindowStyle Hidden -PassThru
   Set-Content $pidFile $p.Id
   Write-Host "$name started (pid $($p.Id)). Console log: $out"

@@ -561,6 +561,23 @@ def _routes(app: FastAPI):
         out["usd_to_aed"] = str(st.settings.usd_to_aed)
         return out
 
+    @app.get("/api/compare")
+    def compare(_=Depends(require_session), s=Depends(S)):
+        """Every strategy side by side: real paper results from fills, plus the shadow lab (no orders)."""
+        from orbit import shadow
+        c = control(s)
+        real = []
+        for symbol, name in (("SPY", "SPY 200-day rule"), ("GLD", "Gold AI")):
+            perf = performance.for_account(s, c.account_fingerprint, symbol, performance.stored_closes(s, symbol))
+            row = {"symbol": symbol, "name": name, "available": bool(perf.get("available")), "reason": perf.get("reason")}
+            if perf.get("available"):
+                sm = perf["summary"]
+                row.update(pnl=sm["strategy_pnl"], benchmark_pnl=sm["benchmark_pnl"], pct=sm["strategy_pct"],
+                           benchmark_pct=sm["benchmark_pct"], money_used=sm["money_used"], held_qty=sm["held_qty"],
+                           sessions=perf["sessions"], verdict=perf["verdict"])
+            real.append(row)
+        return {"real": real, "lab": shadow.get(s), "usd_to_aed": str(st.settings.usd_to_aed), "fx": fx_assumption()}
+
     @app.get("/api/market/live")
     def market_live(tf: str = "5Min", symbol: str = "SPY", _=Depends(require_session)):
         """Recent candles + latest trade for SPY or GLD. Display only; never used for decisions; no trading client."""
@@ -576,12 +593,18 @@ def _routes(app: FastAPI):
         return {"available": True, **data, "market": _market(st.cal, now)}
 
     @app.get("/api/news")
-    def news(_=Depends(require_session)):
-        """Latest SPY/market headlines. Display only; never used for decisions."""
+    def news(_=Depends(require_session), s=Depends(S)):
+        """Latest SPY and gold headlines with FinBERT scores when the AI news reader is on. Display only."""
+        from orbit import news_ai
+        ai = {"installed": news_ai.model_installed(st.settings.data_dir), "mood": news_ai.get_mood(s)}
         try:
-            return {"available": True, **st.live.news("SPY", 30)}
+            out = {"available": True, **st.live.news("SPY,GLD", 40)}
         except LiveDataError as e:
-            return {"available": False, "reason": str(e), "items": []}
+            return {"available": False, "reason": str(e), "items": [], "ai": ai}
+        scores = news_ai.get_scores(s)
+        out["items"] = [{**n, "ai": scores.get(str(n["id"]))} for n in out["items"]]
+        out["ai"] = ai
+        return out
 
     def _latest_closes(s) -> dict:
         ds = s.scalar(select(Dataset).where(Dataset.mode == "ALPACA").order_by(Dataset.id.desc()))

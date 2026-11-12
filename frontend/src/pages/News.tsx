@@ -19,7 +19,8 @@ export function News() {
         This page is for learning only: neither news nor forecasts can place or change orders.</p>
       <div className="grid news-grid">
         <div className="card">
-          <h2>Latest SPY &amp; market headlines</h2>
+          <h2>Latest SPY &amp; gold headlines</h2>
+          {news.data?.ai && <MoodBar ai={news.data.ai} />}
           {news.error && <ErrorNote error={news.error} />}
           {!news.data ? <Loading /> : !news.data.available ? (
             <div className="banner info"><span aria-hidden="true">ℹ</span><div>{news.data.reason}</div></div>
@@ -32,6 +33,7 @@ export function News() {
                       <span>{n.created_at ? ago(n.created_at) : ""}</span>
                       <span>· {n.source}</span>
                       {n.symbols?.length > 0 && <span className="news-syms">{n.symbols.slice(0, 4).join(" ")}</span>}
+                      {n.ai && <AiTag sc={n.ai} />}
                     </div>
                     {n.url ? <a href={n.url} target="_blank" rel="noopener noreferrer" className="news-head">{n.headline}</a>
                       : <span className="news-head">{n.headline}</span>}
@@ -47,6 +49,37 @@ export function News() {
           {fc.error && <ErrorNote error={fc.error} />}
           {!fc.data ? <Loading /> : <ForecastPanel d={fc.data} reload={fc.reload} />}
         </div>
+      </div>
+    </div>
+  );
+}
+
+const TONE: Record<string, { text: string; cls: string }> = {
+  positive: { text: "Positive", cls: "chg up" }, negative: { text: "Negative", cls: "chg down" }, neutral: { text: "Neutral", cls: "muted" },
+};
+
+/** FinBERT's reading of one headline. */
+function AiTag({ sc }: { sc: any }) {
+  const t = TONE[sc.label] ?? TONE.neutral;
+  return <span className={t.cls} title={`FinBERT: positive ${Math.round(sc.positive * 100)}%, negative ${Math.round(sc.negative * 100)}%, neutral ${Math.round(sc.neutral * 100)}%`}>· AI: {t.text} {Math.round(sc[sc.label] * 100)}%</span>;
+}
+
+/** Overall news mood per fund over the last 24 hours. */
+function MoodBar({ ai }: { ai: any }) {
+  if (!ai.installed) return <p className="small muted">AI news reader is not installed, so headlines are shown without scores.</p>;
+  if (!ai.mood?.available) return <p className="small muted">AI news reader is starting; scores appear within 15 minutes.</p>;
+  return (
+    <div className="banner info" style={{ marginBottom: ".6rem" }}>
+      <span aria-hidden="true">🧠</span>
+      <div className="small">
+        <strong>AI news mood, last 24 hours</strong> (FinBERT, -1 very negative to +1 very positive):{" "}
+        {Object.entries(ai.mood.funds).map(([k, v]: [string, any]) => (
+          <span key={k} style={{ marginRight: ".8rem" }}>
+            {k === "GLD" ? "Gold" : k}: <span className={v.mood > 0.1 ? "chg up" : v.mood < -0.1 ? "chg down" : ""}>{v.mood > 0 ? "+" : ""}{v.mood.toFixed(2)}</span>{" "}
+            <span className="muted">({v.headlines} headlines: {v.positive} positive, {v.negative} negative{v.warn ? ", warning sent" : ""})</span>
+          </span>
+        ))}
+        <div className="muted">Only a heads-up: news never places or blocks orders. The AI can misread a headline.</div>
       </div>
     </div>
   );

@@ -16,6 +16,12 @@ dependencies = [
   "python-multipart==0.0.32",
 ]
 
+[project.optional-dependencies]
+news = [
+    "torch==2.15.0",
+    "transformers==5.22.2",
+]
+
 [dependency-groups]
 dev = ["pytest==9.1.1", "pip-audit==2.9.0"]
 
