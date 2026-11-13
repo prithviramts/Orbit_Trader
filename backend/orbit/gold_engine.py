@@ -97,6 +97,9 @@ class GoldEngine(Engine):
         self.reassess(ctx)
         self.execute(ctx)
 
+    def automation_enabled(self, s: Session) -> bool:
+        return get_settings(s)["enabled"]
+
     # ------------------------------------------------------------------ learning
     def _near_open(self, now: datetime) -> bool:
         day = now.astimezone(NEW_YORK).date()
