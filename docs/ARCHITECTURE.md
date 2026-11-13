@@ -75,3 +75,18 @@ strategies/accounts writing concurrently, network storage, or HA failover. Schem
   shadow mode before any manual promotion; never load pickles or downloaded code.
 - News/LLM components would get no broker credentials, no shell and no order permission; outputs are
   validated by schema and pass the same deterministic risk checks.
+
+## Execution safeguards and optional monitoring
+
+An automated GLD order must pass the current GLD enable switch again when
+the worker processes its pending intent. A pending intent observed while
+automation is disabled is skipped. An explicit owner close uses the separate
+manual-close path. A request that has already entered submission may still
+need broker reconciliation or cancellation.
+
+The drawdown warning triggers at the configured threshold and re-arms only
+after recovery below half that threshold. The entry pause remains separately
+latched. These thresholds apply to observed close-to-close equity marks.
+
+The optional external heartbeat initializes its HTTP client on the first due
+ping. A client setup or ping error is recorded as a monitoring error.
