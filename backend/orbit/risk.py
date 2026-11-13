@@ -65,7 +65,7 @@ def update_drawdown(state: DrawdownState, equity: Decimal, policy: RiskPolicy) -
         # Hysteresis: a new warning episode needs a real recovery, so hovering near the
         # threshold does not spam alerts. The entry latch is NOT reset here.
         state.warned = False
-    elif not state.warned:
+    elif state.drawdown >= policy.warn_fraction and not state.warned:
         state.warned = True
         events.append("WARN")
     if state.drawdown >= policy.pause_fraction and not state.entries_paused:
