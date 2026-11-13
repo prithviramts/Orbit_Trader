@@ -190,3 +190,20 @@ def test_overview_and_chart_include_gold(tmp_path):
     assert g["available"] is False and "gold" in g["reason"].lower()
     assert c.get("/api/market/chart?symbol=BTC").status_code == 400
     assert c.get("/api/market/live?tf=1Day&symbol=BTC").status_code == 400
+
+
+def test_disabling_gold_after_planning_blocks_submission(env, tmp_path):
+    gold = _gold(env, tmp_path)
+    activate(env)
+    with env["db"].session() as s:
+        gold_engine.set_settings(s, True, Decimal("100"), Decimal("250"))
+    _cycle(env, gold, EVAL + timedelta(minutes=1))
+    intent, = _gold_intents(env)
+    assert intent.state == "PENDING"
+    with env["db"].session() as s:
+        gold_engine.set_settings(s, False, Decimal("100"), Decimal("250"))
+    _cycle(env, gold, at(D1, 14, 31))
+    intent, = _gold_intents(env)
+    assert intent.state == "SKIPPED"
+    assert "automation disabled" in intent.reason
+    assert env["broker"].get_order_by_client_id(intent.client_order_id) is None
