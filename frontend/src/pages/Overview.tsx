@@ -14,7 +14,31 @@ export function Overview() {
   return (
     <div>
       <h1>Overview</h1>
-      <p className="muted">{o.health_vs_profit}</p>
+      <section className="card" aria-label="Paper execution status">
+        <div className="row">
+          <Badge kind="accent">Paper</Badge>
+          <Badge kind="">{o.mode === "PAPER_AUTO" ? "Automation enabled" : "Observe only"}</Badge>
+          <Badge kind="">Worker: {o.worker.state.replaceAll("_", " ")}</Badge>
+          {o.flags.new_orders_paused && <Badge kind="warn">New orders paused</Badge>}
+          {o.flags.risk_paused_entries && <Badge kind="warn">Entries paused</Badge>}
+          {o.flags.security_paused && <Badge kind="bad">Security pause</Badge>}
+        </div>
+        <p className="small">
+          Latest reconciliation: {o.reconciliation ? <>{o.reconciliation.ok ? "Clean" : "Discrepancies"} · <DubaiTime t={o.reconciliation.at} /></> : "Unavailable"}
+          {" · "}Latest decision data: {d?.data_fetched_at ? <DubaiTime t={d.data_fetched_at} /> : "Unavailable"}
+        </p>
+        <h2>Open order intents</h2>
+        {o.open_intents.length ? (
+          <ul>{o.open_intents.map((i: any) => (
+            <li key={i.id}>
+              <strong>{i.side} {i.symbol}</strong> <StateBadge state={i.state} />
+              {i.state === "PENDING" && <> · Planned for {i.execution_session}</>}
+              {i.reason && <> · {i.reason}</>}
+            </li>
+          ))}</ul>
+        ) : <p className="muted">No open order intents.</p>}
+        <Link to="/orders">Review orders and controls →</Link>
+      </section>
 
       {o.incidents.length > 0 && (
         <section aria-label="Unresolved incidents">
@@ -92,7 +116,7 @@ export function Overview() {
             <>
               <div className="row">
                 <StateBadge state={o.gold.latest.action} />
-                {o.gold.latest.probability != null && <Badge kind="">{Math.round(o.gold.latest.probability * 100)}% chance up</Badge>}
+                {o.gold.latest.probability != null && <Badge kind="">{Math.round(o.gold.latest.probability * 100)}% model score</Badge>}
                 <span className="muted">Session {o.gold.latest.session}</span>
               </div>
               <p className="small">{o.gold.latest.reason}</p>
