@@ -41,3 +41,14 @@ def test_http_url_refused_and_disabled_without_config():
 def test_heartbeat_url_is_redacted(monkeypatch):
     monkeypatch.setenv("ORBIT_HEARTBEAT_URL", URL)
     assert "abc-secret-uuid" not in redact(f"GET {URL} failed")
+
+
+def test_client_setup_failure_is_contained(monkeypatch):
+    def fail(**kwargs):
+        raise ImportError("unsupported proxy")
+
+    monkeypatch.setattr(httpx, "Client", fail)
+    hb = Heartbeat(Settings(_env_file=None, ORBIT_HEARTBEAT_URL="https://monitor.example/ping"))
+    assert hb.enabled
+    assert not hb.maybe_ping(datetime.now(timezone.utc))
+    assert hb.last_error == "ImportError"
