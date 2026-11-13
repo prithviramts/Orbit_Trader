@@ -11,7 +11,7 @@ export function Decisions() {
   return (
     <div>
       <h1>Decisions</h1>
-      <p className="muted">Every evaluation is stored with the data it used. BUY/SELL create an order intent; HOLD/SKIP explain why nothing was ordered.</p>
+      <p className="muted">Each row shows the strategy decision. Open it to check the data used and see whether an order was planned, submitted, or filled.</p>
       <div className="row" style={{ marginBottom: ".75rem" }}>
         <label htmlFor="q" className="sr-only">Search</label>
         <input id="q" placeholder="Search reasons…" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -28,7 +28,7 @@ export function Decisions() {
       ) : (
         <div className="card table-wrap">
           <table>
-            <thead><tr><th>Session</th><th>Fund</th><th>Action</th><th>Target</th><th>Close / avg (USD)</th><th>Mode</th><th>Reason</th></tr></thead>
+            <thead><tr><th>Session</th><th>Fund</th><th>Decision</th><th>Target</th><th>Close / avg (USD)</th><th>Mode</th><th>Reason</th></tr></thead>
             <tbody>
               {data.items.map((d: any) => (
                 <tr key={d.id} className="clickable" onClick={() => nav(`/decisions/${d.id}`)}>
@@ -92,7 +92,7 @@ export function DecisionDetail() {
             <>
               <h3>Entry sizing</h3>
               <table><tbody>
-                <tr><th scope="row">25% of equity</th><td>{Number(d.inputs.sizing.by_fraction).toFixed(2)} USD</td></tr>
+                <tr><th scope="row">Equity-based allocation</th><td>{Number(d.inputs.sizing.by_fraction).toFixed(2)} USD</td></tr>
                 <tr><th scope="row">Hard cap</th><td>{Number(d.inputs.sizing.by_cap).toFixed(2)} USD</td></tr>
                 <tr><th scope="row">Cash after reserve</th><td>{Number(d.inputs.sizing.by_cash).toFixed(2)} USD</td></tr>
                 <tr><th scope="row">Target (limited by)</th><td>{Number(d.inputs.sizing.target).toFixed(2)} USD ({d.inputs.sizing.limited_by})</td></tr>
@@ -105,7 +105,8 @@ export function DecisionDetail() {
           {showInputs && <div className="table-wrap" style={{ maxHeight: 300, overflowY: "auto" }}><table><thead><tr><th>Session</th><th>Close</th></tr></thead><tbody>{sig.inputs.map((r: string[]) => <tr key={r[0]}><td>{r[0]}</td><td className="num">{r[1]}</td></tr>)}</tbody></table></div>}
         </div>
         <div className="card">
-          <h2>Decision → order → fill timeline</h2>
+          <h2>Order lifecycle</h2>
+          {data.intents.length === 0 && <p className="muted">No order intent was recorded for this decision.</p>}
           <ol className="timeline">{data.timeline.map((t: any, i: number) => <li key={i}><div className="small muted"><DubaiTime t={t.at} /></div><Badge kind="">{t.kind}</Badge> {t.text}</li>)}</ol>
           {data.intents.map((i: any) => <IntentCard key={i.id} i={i} />)}
           {data.fills.length > 0 && (
