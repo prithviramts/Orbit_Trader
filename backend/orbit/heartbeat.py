@@ -25,7 +25,7 @@ class Heartbeat:
             log.error("ORBIT_HEARTBEAT_URL must be https; heartbeat disabled.")
             self.url = None
         self.interval = timedelta(seconds=max(60, settings.heartbeat_interval_seconds))
-        self.client = client or httpx.Client(timeout=httpx.Timeout(10.0, connect=5.0), follow_redirects=False)
+        self.client = client
         self.last_ok: datetime | None = None
         self.last_attempt: datetime | None = None
         self.last_error: str = ""
@@ -42,6 +42,8 @@ class Heartbeat:
             return False
         self.last_attempt = now
         try:
+            if self.client is None:
+                self.client = httpx.Client(timeout=httpx.Timeout(10.0, connect=5.0), follow_redirects=False)
             r = self.client.get(self.url)
             if 200 <= r.status_code < 300:
                 self.last_ok, self.last_error = now, ""
