@@ -447,7 +447,7 @@ def _routes(app: FastAPI):
             "strategy_position": {"held_qty": str(pos.held_qty), "cost_basis": mp(pos.cost_basis), "signal_target": pos.signal_target,
                                   "exposure_note": pos.exposure_note} if pos else None,
             "open_intents": [ser_intent(i) for i in oi], "pending_buy_notional": mp(p_open),
-            "last_decision": ser_decision(dec) if dec else None,
+            "last_decision": {**ser_decision(dec), "data_fetched_at": _times(dec.data_fetched_at)} if dec else None,
             "reconciliation": {"ok": rep.ok, "at": _times(rep.at), "discrepancies": rep.discrepancies} if rep else None,
             "incidents": incidents,
             "drawdown": {"marks": [{"session": m.session.isoformat(), "equity": str(m.equity), "hwm": str(m.high_water_mark), "drawdown": str(m.drawdown)} for m in marks[-60:]],

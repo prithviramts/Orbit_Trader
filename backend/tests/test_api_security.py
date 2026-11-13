@@ -289,3 +289,25 @@ def test_remote_mode_accepts_only_public_https_origin(tmp_path):
     assert c.post("/api/controls/pause", headers={"Origin": "http://127.0.0.1:8765", "X-CSRF-Token": csrf}).status_code == 403
     assert c.post("/api/controls/pause", headers={"Origin": pub, "X-CSRF-Token": csrf}).status_code == 200
     assert c.get("/api/overview", headers={"Host": "evil.example"}).status_code == 400
+
+
+def test_overview_shows_when_latest_decision_data_was_fetched(tmp_path):
+    from datetime import date, datetime, timezone
+    from orbit.db import Decision
+    from orbit.engine import create_version
+    from orbit.risk import RiskPolicy
+    from orbit.strategy import StrategyParams
+    settings = Settings(_env_file=None, ORBIT_DATA_DIR=str(tmp_path))
+    db = Database(tmp_path / "ov.sqlite3")
+    init_db(db.engine)
+    fetched = datetime(2026, 3, 10, 20, 10, tzinfo=timezone.utc)
+    with db.session() as s:
+        auth.set_password(s, PW)
+        v = create_version(s, StrategyParams(), RiskPolicy(), "test")
+        s.add(Decision(account_key="paper", symbol="SPY", session=date(2026, 3, 10), strategy_version_id=v.id, data_mode="IEX",
+                       data_source="test", previous_target="CASH", target="CASH", action="HOLD", mode_at_decision="OBSERVE",
+                       reason="test", data_fetched_at=fetched))
+    c = TestClient(create_app(settings, db), base_url=ORIGIN)
+    login(c)
+    d = c.get("/api/overview").json()["last_decision"]
+    assert d["action"] == "HOLD" and d["data_fetched_at"] is not None
