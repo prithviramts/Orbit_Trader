@@ -749,6 +749,9 @@ class Engine:
             self._decide(s, ctx, d.session, series, err, active_version(s), p, sequence=d.sequence + 1)
 
     # ============================================================ execution
+    def automation_enabled(self, s: Session) -> bool:
+        return True
+
     def execute(self, ctx: TickContext) -> None:
         with self.db.session() as s:
             c = control(s)
@@ -785,6 +788,9 @@ class Engine:
                 return
             blockers = []
             manual = it.kind == "CLOSE_MANUAL"  # explicit authenticated owner action
+            if not manual and not self.automation_enabled(s):
+                transition(s, it, "SKIPPED", "Strategy automation disabled before submission.", now=now)
+                return
             if c.mode != "PAPER_AUTO" and not manual:
                 blockers.append("mode is OBSERVE")
             if c.security_paused and not manual:
