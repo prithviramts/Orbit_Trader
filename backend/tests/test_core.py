@@ -303,3 +303,13 @@ def test_backtest_skips_gapped_windows_like_live():
     window_start = sess[sess.index(date.fromisoformat(first_ok["session"])) - 199]
     assert window_start > gap_day
     assert all(date.fromisoformat(d["session"]) < date.fromisoformat(first_ok["session"]) for d in gapped)
+
+
+def test_drawdown_warns_only_at_threshold_and_rearms_after_recovery():
+    st, pol = DrawdownState(), RiskPolicy()
+    assert update_drawdown(st, Decimal(1000), pol) == []
+    assert update_drawdown(st, Decimal(970), pol) == []
+    assert update_drawdown(st, Decimal(950), pol) == ["WARN"]
+    assert update_drawdown(st, Decimal(970), pol) == []
+    assert update_drawdown(st, Decimal(980), pol) == []
+    assert update_drawdown(st, Decimal(950), pol) == ["WARN"]
