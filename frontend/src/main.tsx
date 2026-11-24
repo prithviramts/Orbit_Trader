@@ -10,6 +10,7 @@ import { AlertsBell } from "./bell";
 // Pages load on demand so the first screen appears quickly (charts are only downloaded when needed).
 const lazyPage = <K extends string>(load: () => Promise<Record<K, React.ComponentType>>, name: K) =>
   React.lazy(() => load().then((m) => ({ default: m[name] })));
+const Today = lazyPage(() => import("./pages/Today"), "Today");
 const Overview = lazyPage(() => import("./pages/Overview"), "Overview");
 const Market = lazyPage(() => import("./pages/Market"), "Market");
 const Decisions = lazyPage(() => import("./pages/Decisions"), "Decisions");
@@ -131,8 +132,39 @@ function TopBar({ theme, setTheme, onLogout }: { theme: string; setTheme: (t: st
 
 type NavItem = [string, IconName, string];
 
+/** Menu sections. A section with tabs groups related pages; its menu item is highlighted on any of them. */
+const SECTIONS: { to: string; icon: IconName; label: string; group: string; tabs?: [string, string][] }[] = [
+  { to: "/", icon: "home", label: "Today", group: "Main", tabs: [["/", "Today"], ["/overview", "Detailed overview"]] },
+  { to: "/orders", icon: "swap", label: "Trades", group: "Main", tabs: [["/orders", "Orders & positions"], ["/decisions", "Decisions"]] },
+  { to: "/performance", icon: "trend", label: "Performance", group: "Main" },
+  { to: "/gold", icon: "coin", label: "Gold AI", group: "Main" },
+  { to: "/market", icon: "candles", label: "Market & news", group: "Main", tabs: [["/market", "Live chart"], ["/news", "News & forecasts"]] },
+  { to: "/learn", icon: "book", label: "Learn", group: "More", tabs: [["/learn", "Learn"], ["/research", "Research"], ["/journal", "Journal & costs"]] },
+  { to: "/status", icon: "gear", label: "System", group: "More",
+    tabs: [["/status", "Status"], ["/ops", "Operations"], ["/setup", "Setup"], ["/security", "Security"]] },
+];
+
+const tabMatches = (path: string, tab: string) => (tab === "/" ? path === "/" : path === tab || path.startsWith(tab + "/"));
+const sectionFor = (path: string) => SECTIONS.find((s) => (s.tabs ?? [[s.to, s.label]]).some(([to]) => tabMatches(path, to)));
+
+/** Tabs across the top of a page that belongs to a section with several pages. */
+function SectionTabs() {
+  const loc = useLocation();
+  const sec = sectionFor(loc.pathname);
+  if (!sec?.tabs) return null;
+  return (
+    <nav className="page-tabs" aria-label={`${sec.label} pages`}>
+      {sec.tabs.map(([to, label]) => (
+        <NavLink key={to} to={to} end={to === "/"} className={() => (tabMatches(loc.pathname, to) ? "active" : "")}>{label}</NavLink>
+      ))}
+    </nav>
+  );
+}
+
 function Sidebar({ groups }: { groups: [string, NavItem[]][] }) {
   const [open, setOpen] = useState(false);
+  const loc = useLocation();
+  const active = sectionFor(loc.pathname)?.to;
   return (
     <aside className={`sidebar ${open ? "menu-open" : ""}`}>
       <div className="sidebar-head">
@@ -146,7 +178,8 @@ function Sidebar({ groups }: { groups: [string, NavItem[]][] }) {
           <div key={title} className="nav-group">
             <div className="nav-title">{title}</div>
             {links.map(([to, icon, label]) => (
-              <NavLink key={to} to={to} end={to === "/"}>
+              <NavLink key={to} to={to} end={to === "/"} className={() => (active === to ? "active" : "")}
+                aria-current={active === to ? "page" : undefined}>
                 <Icon name={icon} />
                 {label}
               </NavLink>
@@ -189,11 +222,7 @@ function App() {
   }, []);
   if (auth === "unknown") return <div style={{ padding: "2rem" }}><Loading /></div>;
   if (auth === "out") return <Login onDone={check} />;
-  const groups: [string, NavItem[]][] = [
-    ["Trade", [["/", "home", "Overview"], ["/market", "candles", "Market & live chart"], ["/orders", "swap", "Orders & positions"], ["/decisions", "list", "Decisions"], ["/performance", "trend", "Performance"], ["/gold", "coin", "Gold AI"], ["/news", "news", "News & forecasts"]]],
-    ["Learn", [["/research", "flask", "Research"], ["/learn", "book", "Learn"], ["/journal", "pen", "Journal & costs"]]],
-    ["System", [["/status", "phone", "Status (phone)"], ["/setup", "plug", "Setup"], ["/ops", "gear", "Operations"], ["/security", "shield", "Security"]]],
-  ];
+  const groups: [string, NavItem[]][] = ["Main", "More"].map((g) => [g, SECTIONS.filter((s) => s.group === g).map((s) => [s.to, s.icon, s.label] as NavItem)]);
   return (
     <BrowserRouter>
       <div className="shell">
@@ -212,10 +241,12 @@ function App() {
               }
             }}
           />
+          <SectionTabs />
           <PageGuard>
           <Suspense fallback={<Loading />}>
           <Routes>
-            <Route path="/" element={<Overview />} />
+            <Route path="/" element={<Today />} />
+            <Route path="/overview" element={<Overview />} />
             <Route path="/status" element={<Status />} />
             <Route path="/setup" element={<Setup />} />
             <Route path="/market" element={<Market />} />
@@ -274,7 +305,7 @@ function NotFound() {
   return (
     <div className="card">
       <h2>Page not found</h2>
-      <button onClick={() => nav("/")}>Go to overview</button>
+      <button onClick={() => nav("/")}>Go to Today</button>
     </div>
   );
 }

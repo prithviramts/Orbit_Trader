@@ -203,6 +203,36 @@ def cmd_gold(a):
     return 0
 
 
+def cmd_day(a):
+    """AI day trader (IVV, paper only): on / off / status / train / resume."""
+    from decimal import Decimal
+    from orbit import day_engine
+    from orbit.engine import active_version, version_params
+    from orbit.market_calendar import now_utc
+    st, db = _db()
+    if a.action == "train":
+        from orbit.market_calendar import xnys_calendar
+        eng = day_engine.DayEngine(db, None, xnys_calendar(), None, st)
+        print("Training the AI day trader on SPY 15-minute history since 2016 (about a minute) ...")
+        ok = eng.maybe_retrain(now_utc(), force=True)
+        with db.session() as s:
+            print(json.dumps(day_engine.summary(s, None)["model_status"], indent=1, default=str))
+        return 0 if ok else 1
+    with db.session() as s:
+        p, _ = version_params(active_version(s))
+        cur = day_engine.get_settings(s)
+        if a.action == "status":
+            print(json.dumps(cur))
+            return 0
+        if a.action == "resume":
+            out = day_engine.resume(s, now_utc(), actor="owner-cli")
+        else:
+            budget = Decimal(a.budget) if a.budget else Decimal(cur["budget_usd"])
+            out = day_engine.set_settings(s, a.action == "on", budget, p.max_entry_notional_usd, actor="owner-cli")
+    print(json.dumps(out), "(paper only; the worker reads this on its next cycle)")
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="orbit")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -218,6 +248,8 @@ def main(argv=None):
     rp = sub.add_parser("report"); rp.add_argument("--month", help="YYYY-MM, default last month"); rp.set_defaults(fn=cmd_report)
     gp = sub.add_parser("gold"); gp.add_argument("state", choices=["on", "off", "status"]); gp.add_argument("--budget")
     gp.set_defaults(fn=cmd_gold)
+    dp = sub.add_parser("day"); dp.add_argument("action", choices=["on", "off", "status", "train", "resume"]); dp.add_argument("--budget")
+    dp.set_defaults(fn=cmd_day)
     a = ap.parse_args(argv)
     return a.fn(a)
 

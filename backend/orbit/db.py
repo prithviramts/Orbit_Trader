@@ -471,7 +471,7 @@ def init_db(engine, backup_dir: Path | None = None, db_path: Path | None = None)
     existing = insp.has_table("schema_version")
     if existing:
         with Session(engine) as s:
-            cur = s.scalar(select(SchemaVersion.version).order_by(SchemaVersion.version.desc()))
+            cur = s.scalar(select(SchemaVersion.version).order_by(SchemaVersion.version.desc()).limit(1))
         if cur == SCHEMA_VERSION:
             return
         if cur and cur > SCHEMA_VERSION:

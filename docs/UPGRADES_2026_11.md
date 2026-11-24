@@ -26,6 +26,24 @@ close and trades at the next open, the same timing as the real strategies.
 | Hold gold | Buy GLD once, never sell |
 | Gold 200-day rule | GLD above its 200-day average, cash below |
 | 70% SPY rule + 30% gold | Rebalanced monthly |
+| SPY 10-month rule | Checked only at month end: SPY above the average of its last 10 month-end closes, cash below (Faber) |
+| SPY 200-day rule with 3% band | Sells only 3% below the 200-day average, buys back only 3% above; fewer false signals |
+| SPY golden cross (50/200) | SPY while its 50-day average is above its 200-day average |
+| Monthly buying (12 months) | One twelfth of the money into SPY at the start of each month for a year, then hold |
+
+The last four were added on 14 November 2026. On 2022 to 13 November 2026 prices (context only):
+
+| Line | Return | Worst fall | Trades |
+|---|---|---|---|
+| Hold SPY | +58% | 25% | 1 |
+| SPY 200-day rule | +33% | 22% | 33 |
+| SPY 10-month rule | +15% | 26% | 13 |
+| SPY 200-day rule with 3% band | +37% | 21% | 9 |
+| SPY golden cross (50/200) | +41% | 19% | 5 |
+| Monthly buying (12 months) | +83% | 19% | 12 |
+
+Monthly buying won here mostly because January 2022 was near a peak and the buying continued through the 2022
+fall; it would have done worse than holding if prices had risen all year.
 
 Two windows are shown: **since Orbit started** (the honest forward test) and **2022 to now** (context only).
 Nothing here can place an order. If a shadow idea keeps doing better for about 6 months, it can be
@@ -63,3 +81,23 @@ Setup on a new computer (one-time, about 440 MB for the model plus the AI librar
     uv run --extra news python -m orbit.cli news-model download
 
 Then restart Orbit. `start.ps1` includes the news libraries automatically once the model is present.
+
+## 6. AI day trader (paper, added 24 November 2026)
+
+A third paper strategy that trades during the day and never holds overnight.
+
+- **When:** at about 18:45 Dubai (09:45 New York, after the first 15 minutes of trading), the model scores the day
+  from the overnight gap, the first 15 minutes and recent days. It buys only above a 52% score.
+- **What:** USD 250 of **IVV**, an S&P 500 fund like SPY. A different fund keeps its shares apart from the
+  SPY 200-day rule's shares in the same account.
+- **Safety exits:** sells straight away if IVV falls 0.75% below the buy price (stop-loss), and always sells
+  10 minutes before the close. Anything left from an earlier day (for example the computer slept) is sold at the next open.
+- **News veto:** no buy when the AI news reader shows a very negative day for SPY.
+- **Learning:** retrains every week on SPY's 15-minute history since 2016. If its last 20 trades lose money in
+  total, it pauses its own buys and alerts you.
+- **Honest test (2019 to November 2026, unseen years, no costs):** AI about +33% over 776 trades (54% winners);
+  the same trade every day about +67%; just holding SPY about +189%. It is an experiment, not an edge.
+- **Needs the computer awake** from 18:30 to 01:00 Dubai on trading days, because the stop-loss is checked by Orbit.
+
+Commands (from the `backend` folder): `uv run python -m orbit.cli day status|on|off|train|resume`.
+The Performance page shows its latest decision, its trades and the model's test results.

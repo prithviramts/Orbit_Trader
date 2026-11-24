@@ -55,7 +55,22 @@ IDEAS = [
     Idea("gold_rule", "Gold 200-day rule", "Hold GLD above its 200-day average, cash below.", "candidate"),
     Idea("mix_70_30", "70% SPY rule + 30% gold",
          "70% follows the SPY 200-day rule, 30% always holds gold. Rebalanced at the start of each month.", "candidate"),
+    # Widely used rules from the trend-following literature, tracked for comparison (added 2026-11-14).
+    Idea("spy_10m", "SPY 10-month rule",
+         "Checked only on the last trading day of each month: hold SPY if its close is above the average of the last "
+         "10 month-end closes, cash below (Meb Faber, 2007).", "candidate"),
+    Idea("spy_band", "SPY 200-day rule with 3% band",
+         "Sell only when SPY closes 3% below its 200-day average; buy back only when it closes 3% above. "
+         "Between the two lines, keep what you hold. Fewer false signals than the plain rule.", "candidate"),
+    Idea("spy_cross", "SPY golden cross (50/200)",
+         "Hold SPY while its 50-day average is above its 200-day average (golden cross), cash after it drops below (death cross).",
+         "candidate"),
+    Idea("spy_dca", "Monthly buying (12 months)",
+         f"Put USD {START_CAPITAL / 12:,.2f} (one twelfth) into SPY at the first open of each month for 12 months, then hold. "
+         "No timing at all; the cash waits until its turn.", "candidate"),
 ]
+BAND = 0.03  # spy_band: 3% either side of the 200-day average
+DCA_MONTHS = 12
 
 
 def _sma(closes: list[float], i: int, n: int) -> float | None:
@@ -101,7 +116,67 @@ def _targets(idea: str, i: int, spy: list[float], gld: list[float], cur: dict, d
         new_month = i + 1 < len(days) and days[i + 1].month != days[i].month
         flipped = (cur.get("SPY", 0.0) > 0) != spy_up
         return want if (new_month or flipped or not cur) else None
+    if idea == "spy_10m":
+        if not _month_end(i, days):
+            if cur:
+                return None
+            # Starting mid-month: follow the signal from the latest completed month end.
+            i = next((k for k in range(i - 1, -1, -1) if _month_end(k, days)), -1)
+            if i < 0:
+                return None
+        m10 = _monthly_sma(spy, i, days, 10)
+        return {"SPY": 1.0 if spy[i] > m10 else 0.0, "GLD": 0.0} if m10 is not None else None
+    if idea == "spy_band":
+        if s200 is None:
+            return None
+        invested = cur.get("SPY", 0.0) > 0
+        if not cur:
+            return {"SPY": 1.0 if spy_up else 0.0, "GLD": 0.0}
+        if invested and spy[i] < s200 * (1 - BAND):
+            return {"SPY": 0.0, "GLD": 0.0}
+        if not invested and spy[i] > s200 * (1 + BAND):
+            return {"SPY": 1.0, "GLD": 0.0}
+        return None
+    if idea == "spy_cross":
+        s50 = _sma(spy, i, 50)
+        return {"SPY": 1.0 if s50 > s200 else 0.0, "GLD": 0.0} if s200 is not None else None
     raise ValueError(idea)
+
+
+def _month_end(i: int, days: list[date]) -> bool:
+    """True when session i is the last one of its month. The latest session is not known to be one yet."""
+    return i + 1 < len(days) and days[i + 1].month != days[i].month
+
+
+def _monthly_sma(closes: list[float], i: int, days: list[date], n: int) -> float | None:
+    """Average of the last n month-end closes, ending with session i (which must be a month end)."""
+    ends = [closes[i]]
+    for k in range(i - 1, -1, -1):
+        if len(ends) == n:
+            break
+        if days[k + 1].month != days[k].month:
+            ends.append(closes[k])
+    return sum(ends) / n if len(ends) == n else None
+
+
+def _simulate_dca(days: list[date], spy: list[Bar], first: int) -> tuple[list[dict], int, float, float]:
+    """Monthly buying: one twelfth of the money at the first open of each month, 12 times, then hold."""
+    cash, qty, buys, trades = START_CAPITAL, 0.0, 0, 0
+    series, peak, max_dd = [], START_CAPITAL, 0.0
+    step = START_CAPITAL / DCA_MONTHS
+    for k in range(first, len(days)):
+        if buys < DCA_MONTHS and (k == first or days[k].month != days[k - 1].month):
+            amount = cash if buys == DCA_MONTHS - 1 else min(step, cash)
+            qty += amount / spy[k][1]
+            cash -= amount
+            buys += 1
+            trades += 1
+        value = cash + qty * spy[k][2]
+        peak = max(peak, value)
+        max_dd = max(max_dd, (peak - value) / peak)
+        series.append({"day": days[k].isoformat(), "value": round(value, 2)})
+    w = qty * spy[-1][2] / series[-1]["value"]
+    return series, trades, max_dd, w
 
 
 def simulate(idea: str, days: list[date], spy: list[Bar], gld: list[Bar], start: date) -> dict:
@@ -113,6 +188,16 @@ def simulate(idea: str, days: list[date], spy: list[Bar], gld: list[Bar], start:
     first = next((k for k, d in enumerate(days) if d >= start), None)
     if first is None or first == 0:
         return {"available": False, "reason": "Not enough price history yet."}
+    if idea == "spy_dca":
+        series, trades, max_dd, w = _simulate_dca(days, spy, first)
+        last = series[-1]["value"]
+        holding = {"SPY": round(w, 3), "GLD": 0.0}
+        return {
+            "available": True, "start": series[0]["day"], "as_of": series[-1]["day"], "sessions": len(series),
+            "value": last, "return_pct": round((last / START_CAPITAL - 1) * 100, 2),
+            "max_drawdown_pct": round(max_dd * 100, 2), "trades": trades,
+            "holding": holding, "next": holding, "changes_next_open": False, "series": series,
+        }
     cash, qty = START_CAPITAL, {"SPY": 0.0, "GLD": 0.0}
     weights: dict = {}
     trades = 0

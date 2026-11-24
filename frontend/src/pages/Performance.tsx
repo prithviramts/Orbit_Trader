@@ -1,3 +1,4 @@
+import { DayTrader } from "./DayTrader";
 import { CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { ErrorNote, Loading, UsdAed, usePoll } from "../components";
 import { Compare } from "./Compare";
@@ -67,6 +68,7 @@ export function Performance({ symbol, embedded = false }: { symbol?: string; emb
       <Compare />
       <StrategyPerformance symbol="SPY" embedded />
       <StrategyPerformance symbol="GLD" embedded />
+      <DayTrader />
     </div>
   );
 }

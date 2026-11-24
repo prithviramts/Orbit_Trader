@@ -81,7 +81,7 @@ class SipHistory:
 
 class GoldEngine(Engine):
     def __init__(self, db, broker, calendar, data_provider, settings: Settings, history=None, model_dir=None):
-        super().__init__(db, broker, calendar, data_provider, settings, symbol=SYMBOL, also_manage=("SPY",))
+        super().__init__(db, broker, calendar, data_provider, settings, symbol=SYMBOL, also_manage=("SPY", "IVV"))
         self.history = history or SipHistory(settings)
         self.model_dir = model_dir or (settings.data_dir / "models")
         self.model: gold_ai.GoldModel | None = gold_ai.load(self.model_dir)

@@ -34,6 +34,31 @@ def test_simulations_follow_their_rules(cal):
     assert by["spy_risk"]["history"]["available"] and by["spy_rule"]["live"]["start"] == "2023-01-03"
 
 
+
+def test_well_known_rules(cal):
+    days = cal.sessions_between(date(2021, 1, 4), date(2023, 6, 30))
+    n = len(days)
+    up_then_down = lambda i: 100 + i * 0.2 if i < n - 60 else 100 + (n - 60) * 0.2 - (i - (n - 60)) * 2.0
+    spy = _bars(cal, date(2021, 1, 4), date(2023, 6, 30), up_then_down)
+    gld = _bars(cal, date(2021, 1, 4), date(2023, 6, 30), lambda i: 50.0)
+    by = {i["id"]: i["history"] for i in shadow.build(spy, gld, None)["ideas"]}
+    hold = by["spy_hold"]
+    for rid in ("spy_10m", "spy_band", "spy_cross"):  # each trend rule steps aside in the long fall and loses less
+        assert by[rid]["holding"]["SPY"] == 0.0 and by[rid]["value"] > hold["value"], rid
+    dca = by["spy_dca"]
+    assert dca["trades"] == 12 and dca["holding"]["SPY"] == 1.0
+
+
+def test_band_ignores_small_wiggles_and_monthly_rule_trades_only_at_month_end(cal):
+    flat = lambda i: 100.0 if i < 300 else (101.0 if i % 2 else 99.0)
+    spy = _bars(cal, date(2021, 1, 4), date(2023, 6, 30), flat)
+    gld = _bars(cal, date(2021, 1, 4), date(2023, 6, 30), lambda i: 50.0)
+    by = {i["id"]: i["history"] for i in shadow.build(spy, gld, None)["ideas"]}
+    assert by["spy_rule"]["trades"] > 100  # the plain rule flips on every 1% wiggle
+    assert by["spy_band"]["trades"] == 0  # the 3% band never triggers
+    months = len({(d.year, d.month) for d, _, _ in spy if d >= shadow.HISTORY_START})
+    assert by["spy_10m"]["trades"] <= months
+
 def test_shadow_lab_updates_once_per_session_and_never_orders(env):
     cal = env["cal"]
     calls = []

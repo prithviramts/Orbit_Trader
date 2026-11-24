@@ -142,5 +142,5 @@ def stored_closes(s: Session, symbol: str) -> list[tuple[date, Decimal]]:
     """Official daily closes Orbit stored for its own decisions (latest Alpaca dataset for the symbol)."""
     from orbit.data.bars import bars_from_json
     from orbit.db import Dataset
-    ds = s.scalar(select(Dataset).where(Dataset.mode == "ALPACA", Dataset.symbol == symbol).order_by(Dataset.id.desc()))
+    ds = s.scalar(select(Dataset).where(Dataset.mode == "ALPACA", Dataset.symbol == symbol).order_by(Dataset.id.desc()).limit(1))
     return [(b.day, b.close) for b in bars_from_json(ds.bars_json)] if ds else []

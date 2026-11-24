@@ -40,8 +40,8 @@ class ControlError(ValueError):
 def readiness(s: Session, now: datetime, broker_configured: bool) -> dict:
     """Setup checks required before activation. Each item is explained in plain English."""
     c = control(s)
-    rep = s.scalar(select(ReconciliationReport).order_by(ReconciliationReport.id.desc()))
-    dec = s.scalar(select(Decision).where(Decision.account_key == c.account_fingerprint, Decision.symbol == "SPY").order_by(Decision.id.desc())) if c.account_fingerprint else None
+    rep = s.scalar(select(ReconciliationReport).order_by(ReconciliationReport.id.desc()).limit(1))
+    dec = s.scalar(select(Decision).where(Decision.account_key == c.account_fingerprint, Decision.symbol == "SPY").order_by(Decision.id.desc()).limit(1)) if c.account_fingerprint else None
     checks = [
         {"id": "credentials", "ok": broker_configured, "text": "Alpaca PAPER credentials found in local .env (values never shown)."},
         {"id": "account_read", "ok": bool(c.account_fingerprint), "text": "Worker has read the paper account at least once."},
@@ -84,7 +84,7 @@ def activate(s: Session, now: datetime, cal: MarketCalendar, broker_configured: 
     created = None
     pos = position(s, c.account_fingerprint)
     dec = s.scalar(select(Decision).where(Decision.account_key == c.account_fingerprint, Decision.symbol == "SPY", Decision.data_mode == "ALPACA")
-                   .order_by(Decision.session.desc(), Decision.sequence.desc()))
+                   .order_by(Decision.session.desc(), Decision.sequence.desc()).limit(1))
     if dec and dec.target == INVESTED and pos.held_qty == 0 and not open_intents(s, c.account_fingerprint):
         created = _entry_from_decision(s, dec, now, cal, "Onboarding: flat while the latest completed close signals INVESTED.")
     return {"created_intent": created, "message": "Paper automation enabled."}
@@ -103,7 +103,7 @@ def _entry_from_decision(s: Session, dec: Decision, now: datetime, cal: MarketCa
     if latest is None or dec.session != latest.day:
         raise ControlError(f"The latest stored decision is for {dec.session}, but the latest completed session is "
                            f"{latest.day if latest else 'unknown'}. Wait for the worker to evaluate it, then retry.")
-    snap_rep = s.scalar(select(ReconciliationReport).order_by(ReconciliationReport.id.desc()))
+    snap_rep = s.scalar(select(ReconciliationReport).order_by(ReconciliationReport.id.desc()).limit(1))
     if not snap_rep or not snap_rep.ok or snap_rep.at < now - timedelta(minutes=10):
         raise ControlError("Need a clean broker reconciliation from the last 10 minutes for sizing.")
     equity, cash = D(snap_rep.broker["equity"]), D(snap_rep.broker["cash"])
@@ -147,7 +147,7 @@ def cancel_pending(s: Session, engine, now: datetime) -> list[dict]:
 
 def close_position(s: Session, now: datetime, cal: MarketCalendar) -> int:
     c = control(s)
-    rep = s.scalar(select(ReconciliationReport).order_by(ReconciliationReport.id.desc()))
+    rep = s.scalar(select(ReconciliationReport).order_by(ReconciliationReport.id.desc()).limit(1))
     if not rep or rep.at < now - timedelta(minutes=2):
         raise ControlError("Need a broker reconciliation from the last 2 minutes. Wait for the worker cycle and retry.")
     if open_intents(s, c.account_fingerprint):
@@ -205,7 +205,7 @@ def acknowledge_review(s: Session, intent_id: int, now: datetime, cal: MarketCal
     new_id = None
     if create_new and it.side == "BUY":
         dec = s.scalar(select(Decision).where(Decision.account_key == c.account_fingerprint, Decision.symbol == "SPY", Decision.data_mode == "ALPACA")
-                       .order_by(Decision.session.desc(), Decision.sequence.desc()))
+                       .order_by(Decision.session.desc(), Decision.sequence.desc()).limit(1))
         if dec and dec.target == INVESTED and position(s, c.account_fingerprint).held_qty == 0 and c.mode == "PAPER_AUTO":
             new_id = _entry_from_decision(s, dec, now, cal, f"After review of intent {it.id}: latest completed signal still INVESTED.", parent_id=it.id)
     return {"superseded": it.id, "new_intent": new_id}
@@ -213,7 +213,7 @@ def acknowledge_review(s: Session, intent_id: int, now: datetime, cal: MarketCal
 
 def resume_security(s: Session, now: datetime, note: str) -> None:
     c = control(s)
-    rep = s.scalar(select(ReconciliationReport).order_by(ReconciliationReport.id.desc()))
+    rep = s.scalar(select(ReconciliationReport).order_by(ReconciliationReport.id.desc()).limit(1))
     if not rep or not rep.ok or rep.at < now - timedelta(minutes=5):
         raise ControlError("Resume requires a clean reconciliation from the last 5 minutes (no unexplained holdings/orders).")
     if len(note.strip()) < 10:
@@ -230,7 +230,7 @@ def resume_risk(s: Session, now: datetime, note: str, override: bool) -> None:
         raise ControlError("Entries are not risk-paused.")
     v = active_version(s)
     p, risk = version_params(v)
-    mark = s.scalar(select(EquityMark).where(EquityMark.account_key == c.account_fingerprint).order_by(EquityMark.session.desc()))
+    mark = s.scalar(select(EquityMark).where(EquityMark.account_key == c.account_fingerprint).order_by(EquityMark.session.desc()).limit(1))
     dd = mark.drawdown if mark else Decimal(0)
     if len(note.strip()) < 10:
         raise ControlError("Record your review reason (at least 10 characters).")

@@ -57,7 +57,7 @@ def main() -> int:
         c.activated_at = ev0
         from orbit.db import Decision
         from sqlalchemy import select
-        dec = s.scalar(select(Decision).order_by(Decision.id.desc()))
+        dec = s.scalar(select(Decision).order_by(Decision.id.desc()).limit(1))
         controls._entry_from_decision(s, dec, ev0, cal, "MOCK demo onboarding: flat while signal INVESTED.")
     t = s1.open_utc + timedelta(minutes=1)
     broker.now = t

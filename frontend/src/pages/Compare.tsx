@@ -9,6 +9,10 @@ const STYLE: Record<string, { color: string; dash?: boolean }> = {
   gold_hold: { color: "var(--chart-b1)", dash: true },
   gold_rule: { color: "var(--cmp-orange)" },
   mix_70_30: { color: "var(--cmp-teal)" },
+  spy_10m: { color: "var(--cmp-sky)" },
+  spy_band: { color: "var(--cmp-pink)" },
+  spy_cross: { color: "var(--cmp-lime)" },
+  spy_dca: { color: "var(--cmp-teal)", dash: true },
 };
 
 function Pct({ v }: { v: number | string | null | undefined }) {
@@ -32,13 +36,16 @@ function Key({ id }: { id: string }) {
 export function Compare() {
   const { data, error } = usePoll<any>("/api/compare", 300000);
   const [win, setWin] = useState<"live" | "history">("live");
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const toggle = (id: string) => setHidden((h) => { const n = new Set(h); n.has(id) ? n.delete(id) : n.add(id); return n; });
   if (error) return <ErrorNote error={error} />;
   if (!data) return <Loading />;
   const lab = data.lab;
   const ideas: any[] = lab?.available ? lab.ideas : [];
   const rows = ideas.map((i) => ({ ...i, w: i[win] })).filter((i) => i.w?.available);
   const chart: Record<string, any> = {};
-  for (const i of rows) for (const p of i.w.series) (chart[p.day] ??= { day: p.day })[i.id] = p.value;
+  const shown = rows.filter((i) => !hidden.has(i.id));
+  for (const i of shown) for (const p of i.w.series) (chart[p.day] ??= { day: p.day })[i.id] = p.value;
   const chartData = Object.values(chart).sort((a: any, b: any) => (a.day < b.day ? -1 : 1));
 
   return (
@@ -91,7 +98,7 @@ export function Compare() {
                   <ReferenceLine y={1000} stroke="var(--muted)" />
                   <Tooltip contentStyle={{ background: "var(--panel)", border: "1px solid var(--line)" }}
                     formatter={(v: any, name: any) => [`USD ${Number(v).toFixed(2)}`, rows.find((r) => r.id === name)?.name ?? name]} />
-                  {rows.map((i) => (
+                  {shown.map((i) => (
                     <Line key={i.id} dataKey={i.id} name={i.id} stroke={STYLE[i.id]?.color} strokeDasharray={STYLE[i.id]?.dash ? "5 3" : undefined}
                       dot={chartData.length < 30} strokeWidth={i.id === "spy_rule" ? 2.4 : 1.6} isAnimationActive={false} />
                   ))}
@@ -99,10 +106,11 @@ export function Compare() {
               </ResponsiveContainer>
             </div>
             <div className="table-wrap"><table className="small">
-              <thead><tr><th>Idea</th><th>USD 1,000 is now</th><th>Return</th><th>Worst fall</th><th>Trades</th><th>Holding now</th></tr></thead>
+              <thead><tr><th><span className="sr-only">On chart</span></th><th>Idea</th><th>USD 1,000 is now</th><th>Return</th><th>Worst fall</th><th>Trades</th><th>Holding now</th></tr></thead>
               <tbody>
                 {rows.map((i) => (
                   <tr key={i.id} className={i.id === "spy_rule" ? "cmp-real" : ""}>
+                    <td><input type="checkbox" checked={!hidden.has(i.id)} onChange={() => toggle(i.id)} aria-label={`Show ${i.name} on the chart`} /></td>
                     <th scope="row" title={i.about}>
                       <Key id={i.id} />{i.name}{" "}
                       {i.kind === "reference" ? <Badge kind="">{i.id === "spy_rule" ? "Orbit's rule" : "Yardstick"}</Badge> : <Badge kind="info">Shadow</Badge>}
@@ -117,6 +125,7 @@ export function Compare() {
                 ))}
               </tbody>
             </table></div>
+            <p className="small muted">Untick a row to hide its line on the chart.</p>
             <ul className="small muted">{lab.notes.map((n: string) => <li key={n}>{n}</li>)}<li>The Gold AI is not re-simulated here: its model retrains, so a replay would look better in hindsight than it really was. Its real result is in the table above.</li></ul>
           </>
         )}

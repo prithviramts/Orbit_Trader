@@ -39,7 +39,7 @@ from orbit.db import (
     OPEN_INTENT_STATES, AuditLog, BrokerSnapshot, ControlState, Decision, EquityMark, Fill, Job, OrderEvent,
     OrderIntent, ReconciliationReport, StrategyPosition, StrategyVersion,
 )
-from orbit.market_calendar import UTC, MarketCalendar
+from orbit.market_calendar import UTC, MarketCalendar, ensure_utc
 from orbit.money import D, floor_qty, money_pair
 from orbit import alerts
 from orbit.notify import emit
@@ -86,7 +86,7 @@ def control(s: Session) -> ControlState:
 
 
 def active_version(s: Session) -> StrategyVersion:
-    v = s.scalar(select(StrategyVersion).where(StrategyVersion.active.is_(True)).order_by(StrategyVersion.id.desc()))
+    v = s.scalar(select(StrategyVersion).where(StrategyVersion.active.is_(True)).order_by(StrategyVersion.id.desc()).limit(1))
     if v is None:
         v = create_version(s, StrategyParams(), RiskPolicy(), "initial default (experimental, unvalidated)", actor="system")
     return v
@@ -449,7 +449,7 @@ class Engine:
         if pos.held_qty <= 0 or pos.signal_target != CASH or open_intents(s, akey, self.symbol):
             return
         last_exit = s.scalar(select(OrderIntent).where(OrderIntent.account_key == akey, OrderIntent.symbol == self.symbol,
-                                                       OrderIntent.side == "SELL").order_by(OrderIntent.id.desc()))
+                                                       OrderIntent.side == "SELL").order_by(OrderIntent.id.desc()).limit(1))
         if last_exit is None or last_exit.state != "TERMINAL_PARTIAL":
             return
         if s.scalar(select(OrderIntent.id).where(OrderIntent.parent_intent_id == last_exit.id)):
@@ -734,7 +734,7 @@ class Engine:
             if not c.account_fingerprint:
                 return
             d = s.scalar(select(Decision).where(Decision.account_key == c.account_fingerprint, Decision.symbol == self.symbol)
-                         .order_by(Decision.session.desc(), Decision.sequence.desc()))
+                         .order_by(Decision.session.desc(), Decision.sequence.desc()).limit(1))
             if not d or not d.inputs.get("awaiting_conflict_resolution") or d.inputs.get("reassessed"):
                 return
             ids = d.inputs["awaiting_conflict_resolution"]
@@ -751,6 +751,12 @@ class Engine:
     # ============================================================ execution
     def automation_enabled(self, s: Session) -> bool:
         return True
+
+    def _window_start(self, it: OrderIntent, sess) -> datetime:
+        """When an intent may be sent: at the open, or (owner closes) when it was created during the session."""
+        if it.kind == "CLOSE_MANUAL":
+            return max(sess.open_utc, ensure_utc(it.created_at))
+        return sess.open_utc
 
     def execute(self, ctx: TickContext) -> None:
         with self.db.session() as s:
@@ -771,9 +777,7 @@ class Engine:
                 transition(s, it, "REVIEW_REQUIRED", "Execution date is not an exchange session.", now=now)
                 self._flag_review(s, it, "Execution date invalid.")
                 return
-            window_start = sess.open_utc
-            if it.kind == "CLOSE_MANUAL":
-                window_start = max(sess.open_utc, it.created_at)
+            window_start = self._window_start(it, sess)
             window_end = window_start + timedelta(minutes=p.execution_window_minutes)
             if now < sess.open_utc:
                 return

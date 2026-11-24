@@ -350,8 +350,8 @@ def _gold_summary(s, akey) -> dict:
     """Compact Gold AI status for the Overview page."""
     from orbit import gold_engine
     pos = s.scalar(select(StrategyPosition).where(StrategyPosition.account_key == akey, StrategyPosition.symbol == "GLD")) if akey else None
-    d = s.scalar(select(Decision).where(Decision.symbol == "GLD").order_by(Decision.session.desc(), Decision.sequence.desc()))
-    pending = s.scalar(select(OrderIntent).where(OrderIntent.symbol == "GLD", OrderIntent.state.in_(OPEN_INTENT_STATES)).order_by(OrderIntent.id))
+    d = s.scalar(select(Decision).where(Decision.symbol == "GLD").order_by(Decision.session.desc(), Decision.sequence.desc()).limit(1))
+    pending = s.scalar(select(OrderIntent).where(OrderIntent.symbol == "GLD", OrderIntent.state.in_(OPEN_INTENT_STATES)).order_by(OrderIntent.id).limit(1))
     return {"settings": gold_engine.get_settings(s),
             "held_qty": str(pos.held_qty) if pos else "0", "cost_basis": mp(pos.cost_basis) if pos else None,
             "latest": None if not d else {"id": d.id, "session": d.session.isoformat(), "action": d.action, "target": d.target,
@@ -400,10 +400,10 @@ def _routes(app: FastAPI):
     def overview(_=Depends(require_session), s=Depends(S)):
         now = now_utc()
         c = control(s)
-        snap = s.scalar(select(BrokerSnapshot).where(BrokerSnapshot.ok.is_(True)).order_by(BrokerSnapshot.id.desc()))
-        last_any = s.scalar(select(BrokerSnapshot).order_by(BrokerSnapshot.id.desc()))
-        rep = s.scalar(select(ReconciliationReport).order_by(ReconciliationReport.id.desc()))
-        dec = s.scalar(select(Decision).where(Decision.symbol == "SPY").order_by(Decision.session.desc(), Decision.sequence.desc()))
+        snap = s.scalar(select(BrokerSnapshot).where(BrokerSnapshot.ok.is_(True)).order_by(BrokerSnapshot.id.desc()).limit(1))
+        last_any = s.scalar(select(BrokerSnapshot).order_by(BrokerSnapshot.id.desc()).limit(1))
+        rep = s.scalar(select(ReconciliationReport).order_by(ReconciliationReport.id.desc()).limit(1))
+        dec = s.scalar(select(Decision).where(Decision.symbol == "SPY").order_by(Decision.session.desc(), Decision.sequence.desc()).limit(1))
         pos = s.scalar(select(StrategyPosition).where(StrategyPosition.account_key == c.account_fingerprint, StrategyPosition.symbol == "SPY")) if c.account_fingerprint else None
         oi = list(s.scalars(select(OrderIntent).where(OrderIntent.state.in_(OPEN_INTENT_STATES)).order_by(OrderIntent.id)))
         review = list(s.scalars(select(OrderIntent).where(OrderIntent.review_required.is_(True))))
@@ -464,8 +464,8 @@ def _routes(app: FastAPI):
         if symbol not in ("SPY", "GLD"):
             raise HTTPException(400, "bad symbol")
         if source == "auto":
-            ds = s.scalar(select(Dataset).where(Dataset.mode == "ALPACA", Dataset.symbol == symbol).order_by(Dataset.id.desc())) or \
-                (s.scalar(select(Dataset).where(Dataset.symbol == symbol).order_by(Dataset.id.desc())) if symbol == "SPY" else None)
+            ds = s.scalar(select(Dataset).where(Dataset.mode == "ALPACA", Dataset.symbol == symbol).order_by(Dataset.id.desc()).limit(1)) or \
+                (s.scalar(select(Dataset).where(Dataset.symbol == symbol).order_by(Dataset.id.desc()).limit(1)) if symbol == "SPY" else None)
         elif source.startswith("dataset:") and source[8:].isdigit():
             ds = s.get(Dataset, int(source[8:]))
         else:
@@ -487,6 +487,25 @@ def _routes(app: FastAPI):
         return {"available": True, "dataset": {"id": ds.id, **(ds.describe or {})}, "bars": bars, "decisions": decisions, "fills": fills,
                 "missing_sessions": quality["missing_sessions"][:200]}
 
+    @app.get("/api/today")
+    def today(_=Depends(require_session), s=Depends(S)):
+        """The Today screen: money, strategies, today's orders, what needs attention and what happens next."""
+        from orbit import today as today_mod
+        out = today_mod.build(s, st.cal, now_utc(), _worker_status(s))
+        out["usd_to_aed"] = str(st.settings.usd_to_aed)
+        return out
+
+    @app.get("/api/day")
+    def day_trader(_=Depends(require_session), s=Depends(S)):
+        """AI day trader (IVV, paper only): settings, model test results, latest decision and completed trades."""
+        from orbit import day_ai, day_engine
+        out = day_engine.summary(s, control(s).account_fingerprint)
+        m = day_ai.load(st.settings.data_dir / "models")
+        out["model"] = {"version": m.version, "trained_through": m.trained_through, "trained_at": m.trained_at, "rows": m.train_rows,
+                        "threshold": m.threshold, "evaluation": m.evaluation} if m else None
+        out["usd_to_aed"] = str(st.settings.usd_to_aed)
+        return out
+
     @app.get("/api/gold")
     def gold(_=Depends(require_session), s=Depends(S)):
         from orbit import gold_ai, gold_engine
@@ -496,7 +515,7 @@ def _routes(app: FastAPI):
         mstat = (s.get(KV, gold_engine.MODEL_KEY).value if s.get(KV, gold_engine.MODEL_KEY) else {}) or {}
         akey = c.account_fingerprint
         decs = list(s.scalars(select(Decision).where(Decision.symbol == "GLD").order_by(Decision.session.desc(), Decision.sequence.desc()).limit(250)))
-        ds = s.scalar(select(Dataset).where(Dataset.mode == "ALPACA", Dataset.symbol == "GLD").order_by(Dataset.id.desc()))
+        ds = s.scalar(select(Dataset).where(Dataset.mode == "ALPACA", Dataset.symbol == "GLD").order_by(Dataset.id.desc()).limit(1))
         bars = _series_from_dataset(ds).bars if ds else []
         idx = {b.day: i for i, b in enumerate(bars)}
         scored, hits, ups = [], 0, 0
@@ -554,7 +573,7 @@ def _routes(app: FastAPI):
     def perf(symbol: str = "SPY", _=Depends(require_session), s=Depends(S)):
         c = control(s)
         symbol = "GLD" if symbol.upper() == "GLD" else "SPY"
-        ds = s.scalar(select(Dataset).where(Dataset.mode == "ALPACA", Dataset.symbol == symbol).order_by(Dataset.id.desc()))
+        ds = s.scalar(select(Dataset).where(Dataset.mode == "ALPACA", Dataset.symbol == symbol).order_by(Dataset.id.desc()).limit(1))
         closes = [(b.day, b.close) for b in _series_from_dataset(ds).bars] if ds else []
         out = performance.for_account(s, c.account_fingerprint, symbol, closes)
         out["fx"] = fx_assumption()
@@ -607,7 +626,7 @@ def _routes(app: FastAPI):
         return out
 
     def _latest_closes(s) -> dict:
-        ds = s.scalar(select(Dataset).where(Dataset.mode == "ALPACA").order_by(Dataset.id.desc()))
+        ds = s.scalar(select(Dataset).where(Dataset.mode == "ALPACA").order_by(Dataset.id.desc()).limit(1))
         return {b.day: b.close for b in _series_from_dataset(ds).bars} if ds else {}
 
     def ser_forecast(f: Forecast) -> dict:
@@ -982,8 +1001,8 @@ def _routes(app: FastAPI):
     @app.get("/api/learn/weekly")
     def learn_weekly(_=Depends(require_session), s=Depends(S)):
         since = now_utc() - timedelta(days=7)
-        d = s.scalar(select(Decision).where(Decision.symbol == "SPY", Decision.known_at >= since, Decision.action.in_(["BUY", "SELL"])).order_by(Decision.id.desc())) or \
-            s.scalar(select(Decision).where(Decision.symbol == "SPY").order_by(Decision.id.desc()))
+        d = s.scalar(select(Decision).where(Decision.symbol == "SPY", Decision.known_at >= since, Decision.action.in_(["BUY", "SELL"])).order_by(Decision.id.desc()).limit(1)) or \
+            s.scalar(select(Decision).where(Decision.symbol == "SPY").order_by(Decision.id.desc()).limit(1))
         if d:
             return {"kind": "actual_decision", "decision_id": d.id, "session": d.session.isoformat(),
                     "prompt": "Open this decision, read the inputs, and check: did the action follow the rule exactly?"}
@@ -1046,7 +1065,7 @@ def _routes(app: FastAPI):
         sessions = [x.to_dict() for x in st.cal.sessions_between(now.astimezone(NEW_YORK).date(), now.date() + timedelta(days=14))][:8]
         jobs = [{"type": j.job_type, "key": j.job_key, "status": j.status, "error": j.error, "finished": _times(j.finished_at)}
                 for j in s.scalars(select(Job).order_by(Job.id.desc()).limit(20))]
-        last_ok = s.scalar(select(Job).where(Job.job_type == "evaluate", Job.status == "DONE").order_by(Job.id.desc()))
+        last_ok = s.scalar(select(Job).where(Job.job_type == "evaluate", Job.status == "DONE").order_by(Job.id.desc()).limit(1))
         reps = list(s.scalars(select(ReconciliationReport).order_by(ReconciliationReport.id.desc()).limit(10)))
         outbox = [{"id": n.id, "status": n.status, "title": n.title, "attempts": n.attempts, "last_error": n.last_error,
                    "created_at": _times(n.created_at), "accepted_at": _times(n.accepted_at)}
@@ -1161,7 +1180,7 @@ def _routes(app: FastAPI):
 
     @app.get("/api/reconciliation")
     def reconciliation(_=Depends(require_session), s=Depends(S)):
-        r = s.scalar(select(ReconciliationReport).order_by(ReconciliationReport.id.desc()))
+        r = s.scalar(select(ReconciliationReport).order_by(ReconciliationReport.id.desc()).limit(1))
         return {"report": {"id": r.id, "at": _times(r.at), "ok": r.ok, "discrepancies": r.discrepancies, "local": r.local, "broker": r.broker} if r else None,
                 "field_sources": {
                     "from_broker": ["cash", "equity", "buying_power", "positions (symbol, qty, avg price)", "orders (status, filled qty, avg fill price)", "clock", "cash activities"],
